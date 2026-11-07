@@ -14,5 +14,4 @@ implementations and runtime messages are preserved.
 - `IPX_transmitter.asm`: Sends files over IPX.
 - `IPX_receiver.asm`: Receives files over IPX.
 - `ProgramEnv.asm`: Displays the first 256 bytes of the program environment.
-- `RevertOrderInFile.asm`: Unfinished program intended to reverse file contents.
 - `Type.asm`: Displays a text file.
