@@ -1,4 +1,6 @@
-;* IPX Nadajnik/Odbiornik - Program odbiorczy
+; Receives files over IPX and saves them using MS-DOS services.
+; Intended to work together with IPX_transmitter.asm.
+;* IPX Transmitter/Receiver - Receiver program
 ;* 2001 by Jakub Halun
 ;* http://halun.pl
 
@@ -9,406 +11,406 @@ jumps
 Start:
 	mov ax, @data
 	mov ds, ax
-	call SprawdzIPX
-	call Odbieraj
-Koniec:
+	call CheckIPX
+	call ReceiveFiles
+ExitProgram:
 	mov bx, 1
-	mov dx, 7777h			;zamknij koncowke
+	mov dx, 7777h			;close the socket
 	int 7ah
 	mov ax, 4c00h
 	int 21h
 
-Odbieraj PROC
+ReceiveFiles PROC
 	mov ah, 09h
-	lea dx, KomI1
+	lea dx, MessageI1
 	int 21h
-	lea dx, KomI2
+	lea dx, MessageI2
 	int 21h
-	lea dx, KomI3
+	lea dx, MessageI3
 	int 21h
-Odbieranie:
+ReceiveNextFile:
 	mov ah, 09h
-	lea dx, Kom5
+	lea dx, Message5
 	int 21h
-	call PrzygDoOdbioru
-	call OdbierzPakiet
+	call PrepareToReceive
+	call ReceivePacket
 	mov cx, 60
 	xor si, si
 	xor di, di
-KopiujNazwe:
-	mov al, Pakiet.Dane[si]		;kopiuj nazwe pliku z odebranego pakietu do bufora Kom2
-	cmp al, 0			;bedzie on sluzyl wyswietleniu tej nazwy
-	je KKopiujNazwe
-	mov Kom2[di], al
+CopyFileName:
+	mov al, Packet.Payload[si]		;copy the file name from the received packet to the Message2 buffer
+	cmp al, 0			;the buffer will be used to display the name
+	je EndCopyFileName
+	mov Message2[di], al
 	inc si
 	inc di
 	dec cx
-	jz KKopiujNazwe
-	jmp KopiujNazwe	
-KKopiujNazwe:
-	mov Kom2[di], 13
-	mov Kom2[di+1], 10
-	mov Kom2[di+2], '$'
+	jz EndCopyFileName
+	jmp CopyFileName	
+EndCopyFileName:
+	mov Message2[di], 13
+	mov Message2[di+1], 10
+	mov Message2[di+2], '$'
 	xor si, si
 	xor di, di
 	mov ah, 09h
-	lea dx, Kom1
+	lea dx, Message1
 	int 21h
-	lea dx, Kom2
+	lea dx, Message2
 	int 21h
-	lea dx, Kom7
+	lea dx, Message7
 	int 21h
 
-CzytajZnak1:
+ReadCharacter1:
 	mov ah, 07h
 	int 21h
 	cmp al, 116
-	je OdbTak
+	je AcceptFile
 	cmp al, 110
-	je OdbNie
-	jmp CzytajZnak1
-OdbTak:
+	je RefuseFile
+	jmp ReadCharacter1
+AcceptFile:
 	mov ah, 5bh
-	lea dx, Pakiet.Dane
+	lea dx, Packet.Payload
 	xor cx, cx
 	int 21h
-	jc BladZapPliku
-	mov Uchwyt, ax
-OdbTak2:
-	mov Pakiet.Dane[0], 0		;jezeli program ma odebrac plik
-	mov DlugoscD, 31		;wyslij do nadajnika pakiet zawierajacy
-	mov ah, 09h			;0 na zerowym bajcie pola danych
-	lea dx, Kom4			;bedzie to sygnal gotowosci do odbioru pliku
+	jc FileWriteError
+	mov FileHandle, ax
+ConfirmReceive:
+	mov Packet.Payload[0], 0		;if the program is to receive the file,
+	mov PacketSize, 31		;send the transmitter a packet containing
+	mov ah, 09h			;0 in byte zero of the data field
+	lea dx, Message4			;to signal readiness to receive the file
 	int 21h
-	lea dx, KomA
+	lea dx, MessageA
 	int 21h
-	call PrzygDoNadaw
-	call WyslijPakiet
-Odb:
-	call PrzygDoOdbioru
-	call OdbierzPakiet
-	cmp Pakiet.Dane[0], 3		;sprawdz czy nie pakiet koncowy (zawiera
-	jne OdbDalej			;lancuch znakow: 3,6,9,'~',66)
-	cmp Pakiet.Dane[1], 6
-	jne OdbDalej
-	cmp Pakiet.Dane[2], 9
-	jne OdbDalej
-	cmp Pakiet.Dane[3], '~'
-	jne OdbDalej
-	cmp Pakiet.Dane[4], 66
-	jne OdbDalej
-	jmp ZakOdb
-OdbDalej:
+	call PrepareToSend
+	call SendPacket
+ReceiveDataLoop:
+	call PrepareToReceive
+	call ReceivePacket
+	cmp Packet.Payload[0], 3		;check for the final packet (containing
+	jne WriteReceivedData			;the sequence: 3,6,9,'~',66)
+	cmp Packet.Payload[1], 6
+	jne WriteReceivedData
+	cmp Packet.Payload[2], 9
+	jne WriteReceivedData
+	cmp Packet.Payload[3], '~'
+	jne WriteReceivedData
+	cmp Packet.Payload[4], 66
+	jne WriteReceivedData
+	jmp ReceiveComplete
+WriteReceivedData:
 	mov ah, 40h
-	mov bx, Uchwyt
-	lea dx, Pakiet.Dane
-	mov cx, Pakiet.Dlugosc_Pakietu
-	xchg ch, cl			;zmien format z Hi-Low(stosowany miedzy innymi
-	sub cx, 30			;w naglowku pakietu IPX) na Low-Hi (standard Intela)
-	int 21h				;i zapisz dane o takiej dlugosci (po odjeciu dlugosci
-	jmp Odb				;naglowka) do pliku
-OdbNie:
-	mov Pakiet.Dane[0], 1		;jezeli program ma nie odbierac pliku wyslij
-	mov DlugoscD, 31		;do nadajnika pakiet z 1 na zerowym bajcie pola danych
-	call PrzygDoNadaw
-	call WyslijPakiet
-	jmp ZakonczOdb
-BladZapPliku:
+	mov bx, FileHandle
+	lea dx, Packet.Payload
+	mov cx, Packet.PacketLength
+	xchg ch, cl			;convert from high-low byte order (used
+	sub cx, 30			;in the IPX header) to low-high (Intel's standard)
+	int 21h				;and write this many bytes (after subtracting
+	jmp ReceiveDataLoop				;the header length) to the file
+RefuseFile:
+	mov Packet.Payload[0], 1		;if the program is not to receive the file, send
+	mov PacketSize, 31		;the transmitter a packet with 1 in byte zero of the data field
+	call PrepareToSend
+	call SendPacket
+	jmp FinishReceive
+FileWriteError:
 	cmp ax, 80
-	jne InnyBladZ
+	jne OtherWriteError
 	mov ah, 09h
-	lea dx, Kom2A
+	lea dx, Message2A
 	int 21h
-	lea dx, Kom2B
+	lea dx, Message2B
 	int 21h
-CzytajZnak2:
+ReadCharacter2:
 	mov ah, 07h
 	int 21h
 	cmp al, 116
-	je Nadpisz
+	je Overwrite
 	cmp al, 110
-	je NieNadpisz
-	jmp CzytajZnak2
-Nadpisz:
+	je DoNotOverwrite
+	jmp ReadCharacter2
+Overwrite:
 	mov ah, 3ch
-	lea dx, Pakiet.Dane
+	lea dx, Packet.Payload
 	xor cx, cx
 	int 21h
-	jc BladZapPliku
-	mov Uchwyt, ax
-	jmp OdbTak2
-NieNadpisz:
+	jc FileWriteError
+	mov FileHandle, ax
+	jmp ConfirmReceive
+DoNotOverwrite:
 	mov ah, 09h
-	lea dx, Kom9
+	lea dx, Message9
 	int 21h
-	mov ah, 0ah		;odczyt wiersza z klawiatury
-	mov Nazwa[0], 128	;maksymalna dlugosc lancucha znakow
-	lea dx, Nazwa
+	mov ah, 0ah		;read a line from the keyboard
+	mov NameBuffer[0], 128	;maximum string length
+	lea dx, NameBuffer
 	int 21h
 	xor ax, ax
-	mov al, Nazwa[1]
-	mov di, ax		;dlugosc odczytanego ciagu
-	mov Nazwa[di+2], 0
+	mov al, NameBuffer[1]
+	mov di, ax		;length of the string read
+	mov NameBuffer[di+2], 0
 	xor di, di
-	lea dx, Nazwa + 2
-	mov ax, 5b00h		;tworzenie nowego pliku
+	lea dx, NameBuffer + 2
+	mov ax, 5b00h		;create a new file
 	xor cx, cx
 	int 21h
-	jc BladZapPliku
-	mov Uchwyt, ax
+	jc FileWriteError
+	mov FileHandle, ax
 	mov ah, 09h
-	lea dx, Kom9
+	lea dx, Message9
 	sub dx, 3
 	int 21h
-	jmp OdbTak2
-InnyBladZ:
+	jmp ConfirmReceive
+OtherWriteError:
 	mov ah, 09h
-	lea dx, Kom8
+	lea dx, Message8
 	int 21h
-	jmp OdbNie
-ZakOdb:
+	jmp RefuseFile
+ReceiveComplete:
 	mov ah, 09
-	lea dx, KomB
+	lea dx, MessageB
 	int 21h
-ZakonczOdb:
+FinishReceive:
 	mov ah, 3eh
-	mov bx, Uchwyt
+	mov bx, FileHandle
 	int 21h
 	mov ah, 09h
-	lea dx, Kom3
+	lea dx, Message3
 	int 21h
-CzytajZnak3:
+ReadCharacter3:
 	mov ah, 07h
 	int 21h
 	cmp al, 116
-	je KoniecPr
+	je EndReceiveProcedure
 	cmp al, 110
-	je Odbieranie
-	jmp CzytajZnak3
-KoniecPr:
+	je ReceiveNextFile
+	jmp ReadCharacter3
+EndReceiveProcedure:
 	ret
 ENDP
 
 
-PrzygDoOdbioru PROC
+PrepareToReceive PROC
 	xor di, di
-	mov ECB.Zakonczenie, 0
-	mov ECB.Fl_Kontrolna, 1dh
-	mov ECB.Nr_Procesu, 7777h
-	mov ECB.Liczba_Frag, 1
+	mov ECB.CompletionCode, 0
+	mov ECB.InUseFlag, 1dh
+	mov ECB.SocketNumber, 7777h
+	mov ECB.FragmentCount, 1
 	mov ax, ds
-	mov ECB.Adres_Lokalny[3], ah
-	mov ECB.Adres_Lokalny[2], al
-	lea ax, Pakiet
-	mov ECB.Adres_Lokalny[1], ah
-	mov ECB.Adres_Lokalny[0], al
-	mov ECB.Rozmiar_Lokalny, 576
-	mov Pakiet.Suma_Kontrolna, 0
-	mov Pakiet.Dlugosc_Pakietu, 0		;przy odbiorze wszystkie pola naglowka IPX
-	mov Pakiet.Kontrola_Transportu, 0	;wyzerowane
-	mov Pakiet.Typ_Pakietu, 0
-	mov Pakiet.Proces_Docelowy, 0
-	mov Pakiet.Proces_Zrodlowy, 0
+	mov ECB.LocalAddress[3], ah
+	mov ECB.LocalAddress[2], al
+	lea ax, Packet
+	mov ECB.LocalAddress[1], ah
+	mov ECB.LocalAddress[0], al
+	mov ECB.LocalSize, 576
+	mov Packet.Checksum, 0
+	mov Packet.PacketLength, 0		;clear all IPX header fields
+	mov Packet.TransportControl, 0	;when receiving
+	mov Packet.PacketType, 0
+	mov Packet.DestinationSocket, 0
+	mov Packet.SourceSocket, 0
 	mov cx, 4
 	xor di, di
-UOdbPetla1:
-	mov Pakiet.Siec_Docelowa[di], 0
-	mov Pakiet.Siec_Zrodlowa[di], 0
-	mov ECB.Lacze[di], 0
-	mov ECB.Podpr_Obs_Zd[di], 0
-	mov ECB.Prz_Robocza_IPX[di], 0
+ReceiveInitLoop1:
+	mov Packet.DestinationNetwork[di], 0
+	mov Packet.SourceNetwork[di], 0
+	mov ECB.LinkAddress[di], 0
+	mov ECB.EventServiceRoutine[di], 0
+	mov ECB.IPXWorkspace[di], 0
 	inc di
 	dec cx
-	jz UOdbPetla1K
-	jmp UOdbPetla1	
-UOdbPetla1K:
+	jz EndReceiveInitLoop1
+	jmp ReceiveInitLoop1	
+EndReceiveInitLoop1:
 	xor di, di
 	mov cx, 6
-UOdbPetla2:
-	mov ECB.Adres_Docelowy[di], 0 
-	mov Pakiet.Wezel_Docelowy[di], 0
-	mov Pakiet.Wezel_Zrodlowy[di], 0
+ReceiveInitLoop2:
+	mov ECB.DestinationAddress[di], 0 
+	mov Packet.DestinationNode[di], 0
+	mov Packet.SourceNode[di], 0
 	inc di
 	dec cx
-	jz UOdbPetla2K
-	jmp UOdbPetla2
-UOdbPetla2K:
+	jz EndReceiveInitLoop2
+	jmp ReceiveInitLoop2
+EndReceiveInitLoop2:
 	xor di, di
 	mov cx, 12
-UOdbPetla3:
-	mov ECB.Prz_Robocza_IPX[di], 0
+ReceiveInitLoop3:
+	mov ECB.IPXWorkspace[di], 0
 	inc di
 	dec cx
-	jz UOdbPetla3K
-	jmp UOdbPetla3
-UOdbPetla3K:
+	jz EndReceiveInitLoop3
+	jmp ReceiveInitLoop3
+EndReceiveInitLoop3:
 	ret
 ENDP
 
 
-SprawdzIPX PROC
+CheckIPX PROC
 	mov ax, 7a00h
-	int 2fh				;sprawdz, czy IPX zainstalowany
+	int 2fh				;check whether IPX is installed
 	cmp al, 0ffh
-	jne BrakIPX
+	jne NoIPX
 	xor bx, bx
 	xor ax, ax
 	mov dx, 7777h
-	int 7ah				;otworz koncowke o numerze 7777h
+	int 7ah				;open socket number 7777h
 	cmp ax, 0
-	jne BladKon
+	jne SocketError
 	ret
-BrakIPX:
+NoIPX:
 	mov ah, 09h
-	lea dx, Kom0
+	lea dx, Message0
 	int 21h
-	jmp Koniec
-BladKon:
+	jmp ExitProgram
+SocketError:
 	mov ah, 09h
-	lea dx, Kom6
+	lea dx, Message6
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
 
-OdbierzPakiet PROC
+ReceivePacket PROC
 	mov bx, 4
 	push ds
 	pop es
 	lea si, ECB
 	int 7ah
-PetlaO:
+ReceiveWaitLoop:
 	mov bx, 0ah
 	int 7ah
-	lea si, ECB.Fl_Kontrolna
+	lea si, ECB.InUseFlag
 	cmp byte ptr es:[si], 0
-	jne PetlaO
+	jne ReceiveWaitLoop
 	ret
 ENDP
 
 
-PrzygDoNadaw PROC
-	lea si, Pakiet.Siec_Zrodlowa
+PrepareToSend PROC
+	lea si, Packet.SourceNetwork
 	push ds
 	pop es
 	mov bx, 9
-	int 7ah				;ustal adresy lokalne
-	mov Pakiet.Suma_Kontrolna, 0ffffh
-	mov ax, DlugoscD
-	mov Pakiet.Dlugosc_Pakietu, ax
-	mov Pakiet.Typ_Pakietu, 0
+	int 7ah				;get the local addresses
+	mov Packet.Checksum, 0ffffh
+	mov ax, PacketSize
+	mov Packet.PacketLength, ax
+	mov Packet.PacketType, 0
 	mov cx, 4
 	xor di, di
-PetlaZ1:
-	mov Prz_Robocza_IPX[di], 0
-	mov Pakiet.Siec_Docelowa[di], 0
-	mov ECB.Lacze[di], 0
-	mov ECB.PodPr_Obs_zd[di], 0
+SendInitLoop1:
+	mov IPXWorkspace[di], 0
+	mov Packet.DestinationNetwork[di], 0
+	mov ECB.LinkAddress[di], 0
+	mov ECB.EventServiceRoutine[di], 0
 	inc di
 	dec cx
-	jz KPetlaZ1
-	jmp PetlaZ1
-KPetlaZ1:
+	jz EndSendInitLoop1
+	jmp SendInitLoop1
+EndSendInitLoop1:
 	mov cx, 6
 	xor di, di
-PetlaZ2:
-	mov ECB.Adres_Docelowy[di], 0ffh
-	mov Pakiet.Wezel_Docelowy[di], 0ffh
+SendInitLoop2:
+	mov ECB.DestinationAddress[di], 0ffh
+	mov Packet.DestinationNode[di], 0ffh
 	inc di
 	dec cx
-	jz KPetlaZ2
-	jmp PetlaZ2
-KPetlaZ2:
+	jz EndSendInitLoop2
+	jmp SendInitLoop2
+EndSendInitLoop2:
 	xor di, di
 	mov cx, 12
-PetlaZ3:
-	mov ECB.Prz_Robocza_St[di], 0
+SendInitLoop3:
+	mov ECB.DriverWorkspace[di], 0
 	inc di
 	dec cx
-	jz KPetlaZ3
-	jmp PetlaZ3
-KPetlaZ3:
-	mov Pakiet.Kontrola_Transportu, 0
-	mov Pakiet.Proces_Docelowy, 7777h
-	mov Pakiet.Proces_Zrodlowy, 7777h
-	mov ECB.Nr_Procesu, 7777h
-	mov ECB.Liczba_Frag, 1
-	mov ECB.Zakonczenie, 0
-	mov ECB.Fl_Kontrolna, 0
-	mov ax, DlugoscD
-	mov ECB.Rozmiar_Lokalny, ax
+	jz EndSendInitLoop3
+	jmp SendInitLoop3
+EndSendInitLoop3:
+	mov Packet.TransportControl, 0
+	mov Packet.DestinationSocket, 7777h
+	mov Packet.SourceSocket, 7777h
+	mov ECB.SocketNumber, 7777h
+	mov ECB.FragmentCount, 1
+	mov ECB.CompletionCode, 0
+	mov ECB.InUseFlag, 0
+	mov ax, PacketSize
+	mov ECB.LocalSize, ax
 	mov ax, ds
-	mov ECB.Adres_Lokalny[3], ah
-	mov ECB.Adres_Lokalny[2], al
-	lea ax, Pakiet
-	mov ECB.Adres_Lokalny[1], ah
-	mov ECB.Adres_Lokalny[0], al
+	mov ECB.LocalAddress[3], ah
+	mov ECB.LocalAddress[2], al
+	lea ax, Packet
+	mov ECB.LocalAddress[1], ah
+	mov ECB.LocalAddress[0], al
 
 	ret
 ENDP
 
 
-WyslijPakiet PROC
+SendPacket PROC
 	mov bx, 0003h
 	lea si, ECB
 	int 7ah
-PetlaW:
+SendWaitLoop:
 	mov bx, 000ah
 	int 7ah
-	lea si, ECB.Fl_Kontrolna
+	lea si, ECB.InUseFlag
 	cmp byte ptr es:[si], 0
-	jne PetlaW
+	jne SendWaitLoop
 	ret
 ENDP
 
 
 .data
-	Kom0 db 'Blad. Sterownik IPX nie jest zainstalowany w systemie.',13,10,'$'
-	Kom1 db 'Odbior pliku: $'
-	Kom2 db 64 dup(?)
-	Kom2A db 'Blad. Plik o takiej nazwie juz istnieje.',13,10,'$'
-	Kom2B db 'Nadpisac istniejacy plik? T/N',13,10,'$'
-	Kom3 db 'Zakonczyc prace programu? T/N',13,10,'$'
-	Kom4 db 'Potwierdzenie wyslane do nadajnika.',13,10,'$'
-	Kom5 db 'Oczekiwanie na transmisje nadajnika...',13,10,'$'
-	Kom6 db 'Blad podczas otwierania koncowki.',13,10,'$'
-	Kom7 db 'Odebrac plik? T/N',13,10,'$'
-	Kom8 db 'Blad przy zapisie pliku.',13,10,'$'
-	Kom9 db 'Podaj nowa nazwe dla pliku: ',13,10,'$'
-	KomI1 db 'IPX Nadajnik/Odbiornik',13,10,'$'
-	KomI2 db 'Program odbiorczy',13,10,'$'
-	KomI3 db 'Copyright (c) 2001 Jakub Halun',13,10,13,10,'$'
-	KomA db 'Odbior pliku... $'
-	KomB db ' OK',13,10,'$'
-	Nazwa db 128 dup(?)
-	DlugoscD dw ?
-	Uchwyt dw ?
-	BlokECB	STRUC				;przed inicjalizacja, wszystkie pola
-		Lacze db 4 dup(0)		;bloku kontroli transmisji ECB i naglowka
-		Podpr_Obs_Zd db 4 dup(0)	;pakietu IPX musza byc wyzerowane
-		Fl_Kontrolna db 0
-		Zakonczenie db 0
-		Nr_Procesu dw 0
-		Prz_Robocza_IPX db 4 dup(0)
-		Prz_Robocza_St db 12 dup(0)
-		Adres_Docelowy db 6 dup(0)	;adres wezla docelowego
-		Liczba_Frag dw 0	;1 jezeli naglowek i dane pakietu w jednej strukturze
-		Adres_Lokalny db 4 dup(0)	;adres pakietu IPX
-		Rozmiar_Lokalny dw 0		;rozmiar pakietu IPX
-	BlokECB ENDS
-	ECB BlokECB ?
-	PakietIPX STRUC
-		Suma_Kontrolna dw 0
-		Dlugosc_Pakietu dw 0
-		Kontrola_Transportu db 0
-		Typ_Pakietu db 0
-		Siec_Docelowa db 4 dup(0)
-		Wezel_Docelowy db 6 dup(0)
-		Proces_Docelowy dw 0
-		Siec_Zrodlowa db 4 dup(0)
-		Wezel_Zrodlowy db 6 dup(0)
-		Proces_Zrodlowy dw 0
-		Dane db 546 dup(0)
-	PakietIPX ENDS
-	Pakiet PakietIPX ?
+	Message0 db 'Blad. Sterownik IPX nie jest zainstalowany w systemie.',13,10,'$'
+	Message1 db 'Odbior pliku: $'
+	Message2 db 64 dup(?)
+	Message2A db 'Blad. Plik o takiej nazwie juz istnieje.',13,10,'$'
+	Message2B db 'Nadpisac istniejacy plik? T/N',13,10,'$'
+	Message3 db 'Zakonczyc prace programu? T/N',13,10,'$'
+	Message4 db 'Potwierdzenie wyslane do nadajnika.',13,10,'$'
+	Message5 db 'Oczekiwanie na transmisje nadajnika...',13,10,'$'
+	Message6 db 'Blad podczas otwierania koncowki.',13,10,'$'
+	Message7 db 'Odebrac plik? T/N',13,10,'$'
+	Message8 db 'Blad przy zapisie pliku.',13,10,'$'
+	Message9 db 'Podaj nowa nazwe dla pliku: ',13,10,'$'
+	MessageI1 db 'IPX Nadajnik/Odbiornik',13,10,'$'
+	MessageI2 db 'Program odbiorczy',13,10,'$'
+	MessageI3 db 'Copyright (c) 2001 Jakub Halun',13,10,13,10,'$'
+	MessageA db 'Odbior pliku... $'
+	MessageB db ' OK',13,10,'$'
+	NameBuffer db 128 dup(?)
+	PacketSize dw ?
+	FileHandle dw ?
+	ECBBlock	STRUC				;before initialization, all fields
+		LinkAddress db 4 dup(0)		;of the ECB control block and the IPX
+		EventServiceRoutine db 4 dup(0)	;packet header must be cleared
+		InUseFlag db 0
+		CompletionCode db 0
+		SocketNumber dw 0
+		IPXWorkspace db 4 dup(0)
+		DriverWorkspace db 12 dup(0)
+		DestinationAddress db 6 dup(0)	;destination node address
+		FragmentCount dw 0	;1 if the packet header and data are in one structure
+		LocalAddress db 4 dup(0)	;IPX packet address
+		LocalSize dw 0		;IPX packet size
+	ECBBlock ENDS
+	ECB ECBBlock ?
+	IPXPacket STRUC
+		Checksum dw 0
+		PacketLength dw 0
+		TransportControl db 0
+		PacketType db 0
+		DestinationNetwork db 4 dup(0)
+		DestinationNode db 6 dup(0)
+		DestinationSocket dw 0
+		SourceNetwork db 4 dup(0)
+		SourceNode db 6 dup(0)
+		SourceSocket dw 0
+		Payload db 546 dup(0)
+	IPXPacket ENDS
+	Packet IPXPacket ?
 End Start

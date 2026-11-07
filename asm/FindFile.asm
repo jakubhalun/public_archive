@@ -1,384 +1,385 @@
+; Searches directories for matching files using MS-DOS services, with optional logging.
 ;********************************************************************
-;*     FF.ASM - FILE FIND - program do wyszukiwania plikow na dysku *
+;*     FF.ASM - FILE FIND - searches for files on a disk               *
 ;*     Copyright (C) 2000 Jakub Halun				    *
 ;*     www.yaqb.prv.pl						    *
 ;********************************************************************
 .model small
 .stack 512
 .data
-	DojscieDoPlikZ dw ?		;uchwyt do pliku do zapisu
-	DlLiniiParam db ?
-	ZmienDysk db 0
-	Dysk db ?
-	Plik db 15 dup (?)
-	PlikDoZapisu db 15 dup (?)
-	Dyski1 db 'abcdefghijklmnopqrstuvwxyz'
-	Dyski2 db 'ABCDEFGHIJKLMNOPRQSTUVWXYZ'
-	NazwaPliku db 13 dup (?)
-	DlNazwyPliku dw ?
-	Data db 9 dup (?)
-	Czas db 9 dup (?)
-	AtrCiag db 8 dup (?)
-	KatalogB db 64 dup (?)
-	NastepnaLinia db 13,10,'$'
-	DyskBiezacy db ?	;zapamietuje nr. dysku biezacego jezeli zmieniany
-	Katalog db 64 dup (?)
-	ZachBKatalog db 64 dup (?)
-	Kat db '\','$'
-	WszystkiePl db '*.*', 0
-	KatalogWyzej db 64 dup (?)
-	KatalogW db 64 dup (?)
-	AtrB db ?
-	RozmiarB db 4 dup (?)
-	DataB dw ?
-	CzasB dw ?
-	Wroc db 0
-	DlSciezki dw ?
-	KatalG db 0
+	OutputFileHandle dw ?		;output file handle
+	CommandLineLength db ?
+	ChangeDriveFlag db 0
+	DriveNumber db ?
+	FilePattern db 15 dup (?)
+	OutputFileName db 15 dup (?)
+	LowercaseDrives db 'abcdefghijklmnopqrstuvwxyz'
+	UppercaseDrives db 'ABCDEFGHIJKLMNOPRQSTUVWXYZ'
+	FileName db 13 dup (?)
+	FileNameLength dw ?
+	FileDate db 9 dup (?)
+	FileTime db 9 dup (?)
+	AttributeString db 8 dup (?)
+	CurrentDirectory db 64 dup (?)
+	NewLine db 13,10,'$'
+	OriginalDrive db ?	;save the current drive number if changing drives
+	DirectoryName db 64 dup (?)
+	SavedDirectory db 64 dup (?)
+	DirectorySeparator db '\','$'
+	AllFiles db '*.*', 0
+	ParentDirectory db 64 dup (?)
+	WorkingDirectory db 64 dup (?)
+	AttributeBuffer db ?
+	SizeBuffer db 4 dup (?)
+	DateBuffer dw ?
+	TimeBuffer dw ?
+	ReturningFlag db 0
+	PathLength dw ?
+	RootDirectoryFlag db 0
 	Info db 'FILE FIND wersja 1.0  Copyright (C) 2000 Jakub Halun',13,10,'$'
-	Kom0 db 'Program wyszukuje na dysku pliki o zadanych parametrach',13,10,13,10,'$'
-	Kom1 db 'FF [dysk:] nazwa_pliku [/L:PLIK] [/U] [/S] [/K] [/B]',13,10,13,10,'$'
-	Kom2 db '[dysk:] - okresla dysk do przeszukania',13,10,'$'
-	Kom3 db 'nazwa_pliku - okresla plik do wyszukania', 13,10,13,10,'$'
-	Kom4 db '/L - zachowuje wyniki przeszukiwania dysku do PLIK',13,10,13,10,'$'
-	Kom5 db '/U - wyszukuje rowniez pliki ukryte',13,10,'$'
-	Kom6 db '/S - wyszukuje rowniez pliki systemowe',13,10,'$'
-	Kom9 db '/K - wyszukuje rowniez podkatalogi',13,10,13,10,'$'
-	KomB db '/B - przeszukuje wylacznie biezacy katalog',13,10,'$'
-	KomC db 'Blad: plik podany przy parametrze /L juz istnieje',13,10,'$'
-	KomD db 'Niewlasciwe parametry. Nie podano nazwy pliku do zapisu',13,10,13,10,'$'
-	KomE db 'Niewlasciwe parametry. Niewlasciwe okreslenie dysku',13,10,13,10,'$'
-	KomF db 'Niewlasciwe parametry. Brak nazwy pliku do wyszukania',13,10,13,10,'$'
-	KomG db 'Niewlasciwe parametry. Nazwa pliku do zapisu zawiera zbyt wiele znakow',13,10,13,10,'$'
-	KomH db 'Niewlasciwe parametry. Nazwa pliku do wyszukania zawiera zbyt wiele znakow',13,10,13,10,'$'
-	KomI db 'Blad: nie mozna utworzyc pliku do zapisu',13,10,13,10,'$'
-  	KomJ db 'Tworzony plik juz istnieje. Nadpisac istniejacy plik? T/N',13,10,'$'
-	KomK db 'Podaj nowa nazwe dla tworzonego pliku...',13,10,'$'
-	KomL db 'NAZWA PLIKU   -   DATA   -   CZAS   - ATRYBUTY',13,10,13,10,'$'
-	KomM db 'Blad zapisu do pliku. Program zostanie zakonczony',13,10,'$'
-	KomN db 'Nie znaleziono zadnego pliku odpowiadajacego wzorcowi',13,10,'$'
-	Przerwa db ' - ','$'
-	Parametry db 256 dup (?)
-	Atrybuty db 0		;okresla, czy program ma zwracac uwage na atrybuty
-	TylkoBiezacy db 0	;czy tylko biezacy katalog 1=tak
-	Atrybut dw 0		;atrybuty pliku
-	Atr2 dw 0
-	Zapis db 0
-	Znaleziony db 0
-	KatWyswietlony db 0
-	TenSam db 0
+	Message0 db 'Program wyszukuje na dysku pliki o zadanych parametrach',13,10,13,10,'$'
+	Message1 db 'FF [dysk:] nazwa_pliku [/L:PLIK] [/U] [/S] [/K] [/B]',13,10,13,10,'$'
+	Message2 db '[dysk:] - okresla dysk do przeszukania',13,10,'$'
+	Message3 db 'nazwa_pliku - okresla plik do wyszukania', 13,10,13,10,'$'
+	Message4 db '/L - zachowuje wyniki przeszukiwania dysku do PLIK',13,10,13,10,'$'
+	Message5 db '/U - wyszukuje rowniez pliki ukryte',13,10,'$'
+	Message6 db '/S - wyszukuje rowniez pliki systemowe',13,10,'$'
+	Message9 db '/K - wyszukuje rowniez podkatalogi',13,10,13,10,'$'
+	MessageB db '/B - przeszukuje wylacznie biezacy katalog',13,10,'$'
+	MessageC db 'Blad: plik podany przy parametrze /L juz istnieje',13,10,'$'
+	MessageD db 'Niewlasciwe parametry. Nie podano nazwy pliku do zapisu',13,10,13,10,'$'
+	MessageE db 'Niewlasciwe parametry. Niewlasciwe okreslenie dysku',13,10,13,10,'$'
+	MessageF db 'Niewlasciwe parametry. Brak nazwy pliku do wyszukania',13,10,13,10,'$'
+	MessageG db 'Niewlasciwe parametry. Nazwa pliku do zapisu zawiera zbyt wiele znakow',13,10,13,10,'$'
+	MessageH db 'Niewlasciwe parametry. Nazwa pliku do wyszukania zawiera zbyt wiele znakow',13,10,13,10,'$'
+	MessageI db 'Blad: nie mozna utworzyc pliku do zapisu',13,10,13,10,'$'
+  	MessageJ db 'Tworzony plik juz istnieje. Nadpisac istniejacy plik? T/N',13,10,'$'
+	MessageK db 'Podaj nowa nazwe dla tworzonego pliku...',13,10,'$'
+	MessageL db 'NAZWA PLIKU   -   DATA   -   CZAS   - ATRYBUTY',13,10,13,10,'$'
+	MessageM db 'Blad zapisu do pliku. Program zostanie zakonczony',13,10,'$'
+	MessageN db 'Nie znaleziono zadnego pliku odpowiadajacego wzorcowi',13,10,'$'
+	Separator db ' - ','$'
+	Parameters db 256 dup (?)
+	CheckAttributes db 0		;whether the program should check file attributes
+	CurrentDirectoryOnly db 0	;search only the current directory: 1 = yes
+	FileAttributes dw 0		;file attributes
+	SearchAttributes dw 0
+	WriteEnabled db 0
+	FileFound db 0
+	DirectoryDisplayed db 0
+	SameName db 0
 
 .code
-Pomoc PROC
+ShowHelp PROC
 	mov ah, 09h
 	lea dx, Info
 	int 21h
-	lea dx, Kom0
+	lea dx, Message0
 	int 21h
-	lea dx, Kom1
+	lea dx, Message1
 	int 21h
-	lea dx, Kom2
+	lea dx, Message2
 	int 21h
-	lea dx, Kom3
+	lea dx, Message3
 	int 21h
-	lea dx, Kom4
+	lea dx, Message4
 	int 21h
-	lea dx, Kom5
+	lea dx, Message5
 	int 21h
-	lea dx, Kom6
+	lea dx, Message6
 	int 21h
-	lea dx, Kom9
+	lea dx, Message9
 	int 21h
-	lea dx, KomB
+	lea dx, MessageB
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 	ret
 ENDP
 
 
-CzySaParametry PROC
+CheckParameters PROC
 	mov ah, 62h
 	int 21h
-	mov es, bx		;zaladuj adres bloku PSP do ES
-	mov bl, es:[0080h]	;pobierz dlugosc linii parametrow
-	cmp bl, 0		;i sprawdz, czy nie jest rowna 0
-	jne SaParametry
-	call Pomoc		;jezeli nie ma parametrow wyswietl pomoc
-SaParametry:
-	mov DlLiniiParam, bl	;zapamietaj dlugosc linii parametrow
+	mov es, bx		;load the PSP address into ES
+	mov bl, es:[0080h]	;get the command line length
+	cmp bl, 0		;and check whether it is zero
+	jne ParametersPresent
+	call ShowHelp		;display help if there are no parameters
+ParametersPresent:
+	mov CommandLineLength, bl	;save the command line length
 	ret
 ENDP
 
 
-PobierzParametry PROC
-	mov si, 81h		;zaladuj przesuniecie linii parametrow
+GetParameters PROC
+	mov si, 81h		;load the command line offset
 	xor cx, cx
-	mov cl, DlLiniiParam	;zaladuj dlugosc linii parametrow
-	lea di, Parametry	;zaladuj przesuniecie tablicy parametry
-Petla1:				;skopiuj zawartosc linii parametrow do tablicy
+	mov cl, CommandLineLength	;load the command line length
+	lea di, Parameters	;load the offset of the Parameters array
+CopyLoop1:				;copy the command line contents into the array
 	mov al, es:[si]
 	mov ds:[di], al
 	inc di
 	inc si
 	dec cx
-	jcxz Sprawdzaj
-	jmp Petla1
-Sprawdzaj:
-	mov cl, DlLiniiParam	;sprawdzanie parametrow
+	jcxz CheckOptions
+	jmp CopyLoop1
+CheckOptions:
+	mov cl, CommandLineLength	;check parameters
 	xor si, si
 	xor di, di
-	xor bx, bx		;w rejestrze BX, beda przechowywane atrybuty
+	xor bx, bx		;BX will hold the attributes
 	jumps
-	jmp SprPetla
-PomocX:	call Pomoc
-SprPetla:
-	mov ah, Parametry[si]
-	mov al, Parametry[si+1]
+	jmp CheckOptionsLoop
+ShowHelpJump:	call ShowHelp
+CheckOptionsLoop:
+	mov ah, Parameters[si]
+	mov al, Parameters[si+1]
 	cmp ax, '/?'
-	je PomocX
+	je ShowHelpJump
 	cmp ax, '/H'
-	je PomocX
+	je ShowHelpJump
 	cmp ax, '/h'
-	je PomocX
+	je ShowHelpJump
 	cmp ax, '/u'
-	je UkryteP
+	je HiddenOption
 	cmp ax, '/U'
-	je UkryteP
+	je HiddenOption
 	cmp ax, '/s'
-	je SystemoweP
+	je SystemOption
 	cmp ax, '/S'
-	je SystemoweP
+	je SystemOption
 	cmp ax, '/k'
-	je PodkatalogiP
+	je SubdirectoryOption
 	cmp ax, '/K'
-	je PodkatalogiP
+	je SubdirectoryOption
 	cmp ax, '/b'	
-	je TBiezacy
+	je CurrentDirectoryOption
 	cmp ax, '/B'
-	je Tbiezacy
+	je CurrentDirectoryOption
 	cmp ax, '/l'
-	je ZapisP
+	je WriteOption
 	cmp ax, '/L'
-	je ZapisP
+	je WriteOption
 	inc si
-	loop SprPetla
-	jmp KoniecP
-UkryteP:
-	inc si
-	dec cx
-	mov Atrybuty, 1
-	or bx, 2h			;bit1=1 plik ukryty
-	jmp SprPetla
-SystemoweP:
+	loop CheckOptionsLoop
+	jmp EndOptions
+HiddenOption:
 	inc si
 	dec cx
-	mov Atrybuty, 1
-	or bx, 4h			;bit2=1 plik systemowy
-	jmp SprPetla
-PodkatalogiP:
+	mov CheckAttributes, 1
+	or bx, 2h			;bit 1 = 1: hidden file
+	jmp CheckOptionsLoop
+SystemOption:
 	inc si
 	dec cx
-	mov Atrybuty, 1
+	mov CheckAttributes, 1
+	or bx, 4h			;bit 2 = 1: system file
+	jmp CheckOptionsLoop
+SubdirectoryOption:
+	inc si
+	dec cx
+	mov CheckAttributes, 1
 	or bx, 10h
-	jmp SprPetla
-TBiezacy:
+	jmp CheckOptionsLoop
+CurrentDirectoryOption:
 	inc si
 	dec cx
-	mov TylkoBiezacy, 1
-	jmp SprPetla
-ZapisP:
-	mov Zapis, 1
+	mov CurrentDirectoryOnly, 1
+	jmp CheckOptionsLoop
+WriteOption:
+	mov WriteEnabled, 1
 	xor ax, ax
 	add si, 2
 	sub cx, 2
-	mov al, Parametry[si]
+	mov al, Parameters[si]
 	cmp al, ':'
-	jne BladP
+	jne ParameterError
 	inc si
 	dec cx
-	mov al, Parametry[si]
+	mov al, Parameters[si]
 	cmp al, ' '
-	je BladP
+	je ParameterError
 	xor di, di
-ZapisPPetla:
-	mov al, Parametry[si]
+OutputNameLoop:
+	mov al, Parameters[si]
 	cmp al, ' '
-	je SprPetla
+	je CheckOptionsLoop
 	cmp ah, 12
-	ja ZaDlugaNPDoZ			;skok gdy wiekszy od dwunastu
+	ja OutputNameTooLong			;jump if greater than twelve
 	cmp cl, 0
-	je KoniecP			;skok gdy rowny zero(koniec l. param.)
-	mov PlikDoZapisu[di], al
-	mov PlikDoZapisu[di+1], 0	;zaladuj na koniec nazwy pliku znak 0
+	je EndOptions			;jump if zero (end of command line)
+	mov OutputFileName[di], al
+	mov OutputFileName[di+1], 0	;append a zero to the file name
 	inc di
 	inc si
-	inc ah				;zlicza dlugosci nazwy
+	inc ah				;count the name length
 	dec cx
-	jmp ZapisPPetla
-ZaDlugaNPDoZ:
-	lea dx, KomG
+	jmp OutputNameLoop
+OutputNameTooLong:
+	lea dx, MessageG
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-BladP:
-	lea dx, KomD
+	jmp ExitProgram
+ParameterError:
+	lea dx, MessageD
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-KoniecP:
-	mov Atrybut, bx
+	jmp ExitProgram
+EndOptions:
+	mov FileAttributes, bx
 	or bx, 10h
-	mov Atr2, bx
+	mov SearchAttributes, bx
 	ret
 ENDP
 
 
-PobierzNazwePliku PROC
+GetFileName PROC
 	xor cx, cx
-	mov cl, DlLiniiParam
+	mov cl, CommandLineLength
 	xor si, si
 	xor di, di
-SprPetla2:
-	mov al, Parametry[si]
+CheckDriveLoop:
+	mov al, Parameters[si]
 	cmp al, ':'
-	je LadujNazweDysku
+	je LoadDriveName
 	cmp al, '/'
-	je NieMaNazwyDysku
+	je NoDriveName
 	inc si
-	loop SprPetla2
-	jmp NieMaNazwyDysku
-LadujNazweDysku:
-	mov al, Parametry[si-1]
-	mov ZmienDysk, 1
+	loop CheckDriveLoop
+	jmp NoDriveName
+LoadDriveName:
+	mov al, Parameters[si-1]
+	mov ChangeDriveFlag, 1
 	inc si
 	dec cx
-	jmp NumerDysku
-BladNazwyDysku:
+	jmp FindDriveNumber
+DriveNameError:
 	mov ah, 09h
-	lea dx, KomE
+	lea dx, MessageE
 	int 21h
-	jmp Koniec
-NumerDysku:
-	push cx				;zachowaj wartosc petli na stosie
+	jmp ExitProgram
+FindDriveNumber:
+	push cx				;save the loop counter on the stack
 	xor cx, cx
 	mov cl, 25
 	xor di, di
-NDyskuPetla:
-	mov dl, Dyski1[di]		;porownaj nazwe dysku ze znakami w tablicach
+DriveNumberLoop:
+	mov dl, LowercaseDrives[di]		;compare the drive letter with the characters in the arrays
 	cmp al, dl
-	je LadujNumerDysku
-	mov dl, Dyski2[di]
+	je LoadDriveNumber
+	mov dl, UppercaseDrives[di]
 	cmp al, dl
-	je LadujNumerDysku
+	je LoadDriveNumber
 	inc di
-	loop NDyskuPetla
-	jmp BladNazwyDysku
-LadujNumerDysku:
+	loop DriveNumberLoop
+	jmp DriveNameError
+LoadDriveNumber:
 	pop cx
 	mov ax, di
-	mov Dysk, al			;zaladuj numer dysku
+	mov DriveNumber, al			;load the drive number
 	xor di, di
-	jmp SprPetla3
-NieMaNazwyDysku:
+	jmp SkipNameSpaces
+NoDriveName:
 	xor si, si
-	xor ax, ax			;wyzeruj rejestr AX
-	mov cl, DlLiniiParam
-SprPetla3:
-	mov al, Parametry[si]
+	xor ax, ax			;clear AX
+	mov cl, CommandLineLength
+SkipNameSpaces:
+	mov al, Parameters[si]
 	cmp al, '/'
-	je BladP2
+	je FileNameError
 	cmp al, ' '
-	jne SprPetla4
+	jne CopyNameLoop
 	inc si
-	jmp SprPetla3
-SprPetla4:
-	mov al, Parametry[si]
+	jmp SkipNameSpaces
+CopyNameLoop:
+	mov al, Parameters[si]
 	cmp al, ' '
-	je PobNazweKoniec
+	je EndGetFileName
 	cmp al, '/'
-	je PobNazweKoniec
+	je EndGetFileName
 	cmp ah, 12
-	ja ZaDlugaN			;skok, gdy wiekszy od 12
-	mov Plik[di], al
-	mov Plik[di+1], 0		;zaladuj na koniec nazwy pliku zero
-	inc ah				;ah=dlugosc nazwy podanego pliku
+	ja NameTooLong			;jump if greater than 12
+	mov FilePattern[di], al
+	mov FilePattern[di+1], 0		;append a zero to the file name
+	inc ah				;AH = length of the supplied file name
 	inc si
 	inc di
-	loop SprPetla4
-	jmp PobNazweKoniec
-ZaDlugaN:
-	lea dx, KomH
+	loop CopyNameLoop
+	jmp EndGetFileName
+NameTooLong:
+	lea dx, MessageH
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-BladP2:
-	lea dx, KomF
+	jmp ExitProgram
+FileNameError:
+	lea dx, MessageF
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-PobNazweKoniec:
+	jmp ExitProgram
+EndGetFileName:
 	ret
 ENDP
 
 
-OtworzPlikDoZapisu PROC
-	lea dx, PlikDoZapisu		;zaladuj nazwe pliku
-OtworzPlik:
-	xor cx, cx			;atrybuty pliku 0h
-	mov ah, 5bh			;funkcja tworzenia nowego pliku
+OpenOutputFile PROC
+	lea dx, OutputFileName		;load the file name
+CreateFile:
+	xor cx, cx			;file attributes: 0h
+	mov ah, 5bh			;create a new file
 	int 21h
-	jc BladTwPliku1			;jezeli wystapil blad to CF=1
-	jmp BrakBlTwPliku
-BladTwPliku1:
-	cmp ax, 80			;AX=80 - plik o podanej nazwie juz istnieje
-	je BladTwPliku2
-	lea dx, KomI
+	jc FileCreationError1			;CF = 1 if an error occurred
+	jmp FileCreated
+FileCreationError1:
+	cmp ax, 80			;AX = 80: a file with this name already exists
+	je FileCreationError2
+	lea dx, MessageI
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-BladTwPliku2:
-	cmp PlikDoZapisu[0], 12		;sprawdz, czy juz wczesniej taki blad wystapil
-	je NieNadpisuj			;jezeli tak zazadaj ponownego wpisania nazwy
-	lea dx, KomJ
+	jmp ExitProgram
+FileCreationError2:
+	cmp OutputFileName[0], 12		;check whether this error has already occurred
+	je DoNotOverwrite			;if so, request another file name
+	lea dx, MessageJ
 	mov ah, 09h
 	int 21h
-	mov ah, 07h			;funkcja czytania znaku
-CzytajZnak:
-	int 21h				;kod znaku zwracany jest w AL
-	cmp al, 116			;116=znak T
-	je Nadpisz
-	cmp al, 110			;110=znak N
-	je NieNadpisuj
-	jmp CzytajZnak			;jezeli znak to nie "T" lub "N" - powtorz petle
-Nadpisz:
-	mov ah, 3ch			;tworzenie nowego pliku (z nadpisaniem starego)
-	lea dx, PlikDoZapisu
+	mov ah, 07h			;read a character
+ReadCharacter:
+	int 21h				;the character code is returned in AL
+	cmp al, 116			;116 = character 't'
+	je Overwrite
+	cmp al, 110			;110 = character 'n'
+	je DoNotOverwrite
+	jmp ReadCharacter			;repeat the loop if the character is neither 't' nor 'n'
+Overwrite:
+	mov ah, 3ch			;create a new file, overwriting the old one
+	lea dx, OutputFileName
 	int 21h
-	jc BladTwPliku1			;jezeli wystapil blad CF=1
-	jmp BrakBlTwPliku
-NieNadpisuj:
-	lea dx, KomK
+	jc FileCreationError1			;CF = 1 if an error occurred
+	jmp FileCreated
+DoNotOverwrite:
+	lea dx, MessageK
 	mov ah, 09h
 	int 21h
-	mov ah, 0Ah			;funkcja odczytu wiersza z klawiatury
-	mov PlikDoZapisu[0], 13		;zaladuj maksymalna dlugosc ciagu do odczytu
-	lea dx, PlikDoZapisu		;bufor strumienia wyjsciowego
+	mov ah, 0Ah			;read a line from the keyboard
+	mov OutputFileName[0], 13		;load the maximum length of the string to read
+	lea dx, OutputFileName		;output stream buffer
 	int 21h	
 	xor ax, ax
-	mov al, PlikDoZapisu[1]		;pobierz dlugosc odczytanego ciagu
+	mov al, OutputFileName[1]		;get the length of the string read
 	mov di, ax
-	mov PlikDoZapisu[di+2], 0	;zaladuj na koniec pobranego ciagu znak 0
-	lea dx, PlikDoZapisu + 2	;zaladuj nowa nazwe
-	jmp OtworzPlik
-BrakBlTwPliku:
-	mov DojscieDoPlikZ, ax
+	mov OutputFileName[di+2], 0	;append a zero to the string read
+	lea dx, OutputFileName + 2	;load the new name
+	jmp CreateFile
+FileCreated:
+	mov OutputFileHandle, ax
 	ret
 ENDP
 
 
-ZamkPlDoZapisu PROC
-	mov bx, DojscieDoPlikZ		;zaladuj do BX numer dojscia do pliku
-	mov ah, 3Eh			;funkcja zamykania dojscia do pliku
+CloseOutputFile PROC
+	mov bx, OutputFileHandle		;load the file handle into BX
+	mov ah, 3Eh			;close the file handle
 	int 21h
 	ret
 ENDP
@@ -386,112 +387,112 @@ ENDP
 
 Hex2Ascii PROC
 	mov al, bh
-	aam				;zamien liczbe binarna na liczbe w kodzie BCD
+	aam				;convert a binary number to BCD
 	add ah, '0'
 	add al, '0'
 	ret
 ENDP
 
 
-LadujInfOPliku PROC
+LoadFileInfo PROC
 	xor di, di
 	mov cx, 63
-WyKatalogB:				;wyzeruj tablice KatalogB
-	mov KatalogB[di], 0
+ClearDirectoryBuffer:				;clear the CurrentDirectory array
+	mov CurrentDirectory[di], 0
 	inc di
-	loop WyKatalogB
+	loop ClearDirectoryBuffer
 	mov cx, 0Dh
 	xor si, si
 	xor di, di
-InfPetla:				;ladowanie nazwy odnalezionego pliku
-	mov al, es:[si+158]		;laduj nazwe pliku z bufora DTA
+FileInfoLoop:				;load the name of the file found
+	mov al, es:[si+158]		;load the file name from the DTA buffer
 	cmp al, 0
-	je InfPetlaK
-	mov NazwaPliku[di], al
-	mov NazwaPliku[di+1], '$'	;zaladuj na koniec ciagu znak $
+	je FileInfoLoopEnd
+	mov FileName[di], al
+	mov FileName[di+1], '$'	;append a $ to the string
 	inc di
 	inc si
-	loop InfPetla
-InfPetlaK:
-	mov NazwaPliku[di], 0
-	mov NazwaPliku[di+1], '$'
+	loop FileInfoLoop
+FileInfoLoopEnd:
+	mov FileName[di], 0
+	mov FileName[di+1], '$'
 	inc di
 	dec cx
-	jcxz InfPetlaKK
-	jmp InfPetlaK
-InfPetlaKK:
+	jcxz FileInfoPaddingEnd
+	jmp FileInfoLoopEnd
+FileInfoPaddingEnd:
 	xor di, di
-	mov Data[2], '-'
-	mov Data[5], '-'
-	mov Czas[2], ':'
-	mov Czas[5], ':'
-	mov Data[8], '$'
-	mov Czas[8], '$'
-	mov AtrCiag[7], '$'
-	mov al, es:[149]		;zaladuj bajt atrybutow (80h+15h=149d)
-	test ax, 10h			;testuj, czy bit4=1 (podkatalog)
-	jnz Podkat
-	jmp PodkatN
-Podkat:
-	mov AtrCiag[1], 'K'
-PodkatN:
-	test ax, 20h			;testuj, czy bit5=1 (archiwalny)
-	jnz PArchiwalny
-	jmp PArchiwalnyN
-PArchiwalny:
-	mov AtrCiag[2], 'A'
-PArchiwalnyN:
-	test ax, 1			;testuj, czy bit0=1 (tylko do odczytu)
-	jnz PDoOdczytu
-	jmp PDoOdczytuN
-PDoOdczytu:
-	mov AtrCiag[3], 'R'
-PDoOdczytuN:
-	test ax, 2			;testuj, czy bit1=1 (ukryty)
-	jnz PUkryty
-	jmp PUkrytyN
-PUkryty:
-	mov AtrCiag[4], 'U'
-PUkrytyN:
-	test ax, 4h			;testuj, czy bit2=1 (systemowy)
-	jnz PSystemowy
-	jmp PSystemowyN
-PSystemowy:
-	mov AtrCiag[5], 'S'
-PSystemowyN:
+	mov FileDate[2], '-'
+	mov FileDate[5], '-'
+	mov FileTime[2], ':'
+	mov FileTime[5], ':'
+	mov FileDate[8], '$'
+	mov FileTime[8], '$'
+	mov AttributeString[7], '$'
+	mov al, es:[149]		;load the attribute byte (80h + 15h = 149 decimal)
+	test ax, 10h			;test whether bit 4 = 1 (subdirectory)
+	jnz SubdirectoryAttribute
+	jmp SkipSubdirectoryAttribute
+SubdirectoryAttribute:
+	mov AttributeString[1], 'K'
+SkipSubdirectoryAttribute:
+	test ax, 20h			;test whether bit 5 = 1 (archive)
+	jnz ArchiveAttribute
+	jmp SkipArchiveAttribute
+ArchiveAttribute:
+	mov AttributeString[2], 'A'
+SkipArchiveAttribute:
+	test ax, 1			;test whether bit 0 = 1 (read-only)
+	jnz ReadOnlyAttribute
+	jmp SkipReadOnlyAttribute
+ReadOnlyAttribute:
+	mov AttributeString[3], 'R'
+SkipReadOnlyAttribute:
+	test ax, 2			;test whether bit 1 = 1 (hidden)
+	jnz HiddenAttribute
+	jmp SkipHiddenAttribute
+HiddenAttribute:
+	mov AttributeString[4], 'U'
+SkipHiddenAttribute:
+	test ax, 4h			;test whether bit 2 = 1 (system)
+	jnz SystemAttribute
+	jmp SkipSystemAttribute
+SystemAttribute:
+	mov AttributeString[5], 'S'
+SkipSystemAttribute:
 	xor ax, ax
-	mov dh, es:[153]		;zaladuj date ostatniej modyfikacji
+	mov dh, es:[153]		;load the last modification date
 	mov dl, es:[152]
 	mov bx, dx
 	and bx, 1e0h
-	shl bx, 1			;przesun w lewo
+	shl bx, 1			;shift left
 	shl bx, 1
 	shl bx, 1
 	call Hex2Ascii
-	mov Data[3], ah
-	mov Data[4], al
+	mov FileDate[3], ah
+	mov FileDate[4], al
 
 	mov bx, dx
 	and bx, 0fe00h
-	shr bx, 1			;przesuno 1 w prawo
-	;sprawdz czy data mniejsza od 80 (np. rok 2000 :)
-	cmp bh, 19			;jezeli wieksze od 19
-	ja Rok2000
+	shr bx, 1			;shift right by 1
+	;check whether the year is below 80 (e.g., 2000 :)
+	cmp bh, 19			;if greater than 19
+	ja Year2000
 	add bh, 80
-	jmp NormalnyRok
-Rok2000:
+	jmp NormalYear
+Year2000:
 	sub bh, 20
-NormalnyRok:
+NormalYear:
 	call Hex2Ascii
-	mov Data[0], ah
-	mov Data[1], al
+	mov FileDate[0], ah
+	mov FileDate[1], al
 
 	mov bx, dx
 	and bx, 1fh
 	xchg bh, bl
 	call Hex2Ascii
-	mov Data[6], ah
-	mov Data[7], al
+	mov FileDate[6], ah
+	mov FileDate[7], al
 
 	mov dh, es:[151]
 	mov dl, es:[150]
@@ -499,460 +500,460 @@ NormalnyRok:
 	and bx, 1Fh
 	xchg bh, bl
 	call Hex2Ascii
-	mov Czas[6], ah
-	mov Czas[7], al
+	mov FileTime[6], ah
+	mov FileTime[7], al
 	mov bx, dx
 	and bx, 7e0h
 	shl bx, 1
 	shl bx, 1
 	shl bx, 1
 	call Hex2Ascii
-	mov Czas[3], ah
-	mov Czas[4], al
+	mov FileTime[3], ah
+	mov FileTime[4], al
 	mov bx, dx
 	and bx, 0f800h
 	shr bx, 1
 	shr bx, 1
 	shr bx, 1
 	call Hex2Ascii
-	mov Czas[0], ah
-	mov Czas[1], al
+	mov FileTime[0], ah
+	mov FileTime[1], al
 	mov ah, 47h
-	lea si, KatalogB	
-	mov dl, 0			;dysk biezacy
+	lea si, CurrentDirectory	
+	mov dl, 0			;current drive
 	int 21h
 	xor si, si
-	mov KatalogB[63], '$'		;zaladuj na koniec znak "$"
+	mov CurrentDirectory[63], '$'		;append a "$"
 	ret
-	jmp koniec
+	jmp ExitProgram
 ENDP
 
 
-Zapisuj MACRO DlugoscC, NazwaC
-	mov ah, 40h			;funkcja pisania przez dojscie
-	mov cx, DlugoscC		;dlugosc zapisywanego ciagu
-	lea dx, NazwaC			;adres zapisywanego ciagu
+WriteString MACRO StringLength, StringAddress
+	mov ah, 40h			;write through a file handle
+	mov cx, StringLength		;length of the string to write
+	lea dx, StringAddress			;address of the string to write
 	int 21h
 ENDM
 
 
-WyswietlInfOPliku PROC
+DisplayFileInfo PROC
 	xor di, di
-	cmp Zapis, 1			;sprawdz, czy ma zapisywac do pliku
-	je ZapDoPliku
-	jmp NZapDoPliku
-ZapDoPliku:				;zapisywanie informacji do pliku
-	mov bx, DojscieDoPlikZ
-	cmp Znaleziony, 1	;sprawdz, czy juz uruchomiono wczesniej ta procedure
-	jne NapisPocz1		;jezeli nie - zapisz do pliku napis poczatkowy
-	jmp OminNapisPocz1
-NapisPocz1:
-	Zapisuj 50, KomL
-	jc BladZapisu1		;zakoncz program jezeli wystapil blad
-	jmp OminNapisPocz1
-BladZapisu1:
-	jmp BladZapisu
-OminNapisPocz1:
-	cmp KatWyswietlony, 1	;sprawdz, czy juz zostala wyswietlona nazwa katalogu
-	je WysKat1
-	jmp NWysKat1
-WysKat1:
-	Zapisuj 1, Kat
-	jc BladZapisu1
-	Zapisuj 63, KatalogB
-	jc BladZapisu1
-	Zapisuj 2, NastepnaLinia
-	jc BladZapisu1
-NWysKat1:
-	Zapisuj 0dh, NazwaPliku
-	jc BladZapisu
-	Zapisuj 3, Przerwa
-	jc BladZapisu
-	Zapisuj 8, Data
-	jc BladZapisu
-	Zapisuj 3, Przerwa
-	jc BladZapisu
-	Zapisuj 8, Czas
-	jc BladZapisu
-	Zapisuj 3, Przerwa
-	jc BladZapisu
-	Zapisuj 5, AtrCiag
-	jc BladZapisu
-	Zapisuj 2, NastepnaLinia
-	jc BladZapisu
-	jmp NZapDoPliku
-BladZapisu:
-	lea dx, KomM
+	cmp WriteEnabled, 1			;check whether to write to a file
+	je WriteToFile
+	jmp DisplayOnScreen
+WriteToFile:				;write information to the file
+	mov bx, OutputFileHandle
+	cmp FileFound, 1	;check whether this procedure has already run
+	jne WriteHeading		;if not, write the heading to the file
+	jmp SkipWriteHeading
+WriteHeading:
+	WriteString 50, MessageL
+	jc WriteErrorJump		;exit the program if an error occurred
+	jmp SkipWriteHeading
+WriteErrorJump:
+	jmp WriteError
+SkipWriteHeading:
+	cmp DirectoryDisplayed, 1	;check whether the directory name has already been displayed
+	je WriteDirectory
+	jmp SkipWriteDirectory
+WriteDirectory:
+	WriteString 1, DirectorySeparator
+	jc WriteErrorJump
+	WriteString 63, CurrentDirectory
+	jc WriteErrorJump
+	WriteString 2, NewLine
+	jc WriteErrorJump
+SkipWriteDirectory:
+	WriteString 0dh, FileName
+	jc WriteError
+	WriteString 3, Separator
+	jc WriteError
+	WriteString 8, FileDate
+	jc WriteError
+	WriteString 3, Separator
+	jc WriteError
+	WriteString 8, FileTime
+	jc WriteError
+	WriteString 3, Separator
+	jc WriteError
+	WriteString 5, AttributeString
+	jc WriteError
+	WriteString 2, NewLine
+	jc WriteError
+	jmp DisplayOnScreen
+WriteError:
+	lea dx, MessageM
 	mov ah, 09h
 	int 21h
-	jmp Koniec
-NZapDoPliku:			;wyswietlanie informacji na ekranie
+	jmp ExitProgram
+DisplayOnScreen:			;display information on the screen
 	mov ah, 09h
-	cmp Znaleziony, 1	;sprawdz, czy juz uruchomiono wczesniej ta procedure
-	jne NapisPocz2		;jezeli nie - wyswietl napis poczatkowy
-	jmp OminNapisPocz2
-NapisPocz2:
-	lea dx, KomL
+	cmp FileFound, 1	;check whether this procedure has already run
+	jne DisplayHeading		;if not, display the heading
+	jmp SkipDisplayHeading
+DisplayHeading:
+	lea dx, MessageL
 	int 21h
-OminNapisPocz2:
-	cmp KatWyswietlony, 1
-	je WyswKat2
-	jmp NWyswKat2
-WyswKat2:
-	lea dx, Kat
+SkipDisplayHeading:
+	cmp DirectoryDisplayed, 1
+	je DisplayDirectory
+	jmp SkipDisplayDirectory
+DisplayDirectory:
+	lea dx, DirectorySeparator
 	int 21h
-	lea dx, KatalogB
+	lea dx, CurrentDirectory
 	int 21h
-	lea dx, NastepnaLinia
+	lea dx, NewLine
 	int 21h
-	mov KatWyswietlony, 0
-NWyswKat2:
-	lea dx, NazwaPliku	;wyswietl nazwe wyszukanego pliku
+	mov DirectoryDisplayed, 0
+SkipDisplayDirectory:
+	lea dx, FileName	;display the name of the file found
 	int 21h
-	lea dx, Przerwa
+	lea dx, Separator
 	int 21h
-	lea dx, Data
+	lea dx, FileDate
 	int 21h
-	lea dx, Przerwa
+	lea dx, Separator
 	int 21h
-	lea dx, Czas
+	lea dx, FileTime
 	int 21h
-	lea dx, Przerwa
+	lea dx, Separator
 	int 21h
-	lea dx, AtrCiag
+	lea dx, AttributeString
 	int 21h
-	lea dx, NastepnaLinia
+	lea dx, NewLine
 	int 21h
 	ret
 ENDP
 
 
-WyczyscTab PROC
+ClearAttributeString PROC
 	xor di, di
 	mov cx, 7
-AtrWy:
-	mov AtrCiag[di], 0	;wyzeruj ciag atrybutow
+ClearAttributesLoop:
+	mov AttributeString[di], 0	;clear the attribute string
 	inc di
-	loop AtrWy
+	loop ClearAttributesLoop
 	xor di, di
 	ret
 ENDP
 
 
-SprBiezacyKatalog PROC
-	cmp Atrybuty, 1		;sprawdz, czy podano atrybuty pliku
-	je LadujAtr		;jezeli tak zaladuj do CX
-	jmp NieLadujAtr
-LadujAtr:
-	mov cx, Atrybut
-	jmp AtrybK
-NieLadujAtr:
+SearchCurrentDirectory PROC
+	cmp CheckAttributes, 1		;check whether file attributes were specified
+	je LoadAttributes		;if so, load them into CX
+	jmp NoAttributes
+LoadAttributes:
+	mov cx, FileAttributes
+	jmp AttributesReady
+NoAttributes:
 	xor cx, cx
-AtrybK:
-	mov ah, 4Eh		;wyszukaj pierwszy plik odpowiadajacy wzorcowi
-	lea dx, Plik		;zaladuj wzorzec
+AttributesReady:
+	mov ah, 4Eh		;find the first file matching the pattern
+	lea dx, FilePattern		;load the pattern
 	int 21h
-	jc KoniecBKat	;jezeli nie znaleziono zadnego pliku - skok na koniec
+	jc EndDirectorySearch	;jump to the end if no file was found
 	mov al, es:[158]
 	cmp al, '.'
-	je OmKatN
-	call LadujInfOPliku
-	mov KatWyswietlony, 1
-	call WyswietlInfOPliku	
-	mov Znaleziony, 1
-	jmp SzBPetla
-OmKatN:
-	mov KatWyswietlony, 1
-SzBPetla:			;petla wyszukajaca kolejne pliki w katalogu
-	mov ah, 4Fh		;funkcja - wyszukiwanie kolejnego pliku
+	je SkipDirectoryEntry
+	call LoadFileInfo
+	mov DirectoryDisplayed, 1
+	call DisplayFileInfo	
+	mov FileFound, 1
+	jmp SearchDirectoryLoop
+SkipDirectoryEntry:
+	mov DirectoryDisplayed, 1
+SearchDirectoryLoop:			;loop to find subsequent files in the directory
+	mov ah, 4Fh		;find the next file
 	int 21h
-	jc KoniecBKat		;jezeli nie znaleziono wiecej  - zakoncz petle
+	jc EndDirectorySearch		;end the loop if no more files were found
 	mov al, es:[158]
 	cmp al, '.'
-	je SzBPetla
-	call WyczyscTab
-	call LadujInfOPliku
-	call WyswietlInfOPliku
-	mov Znaleziony, 1
-	jmp SzBpetla
-KoniecBKat:
+	je SearchDirectoryLoop
+	call ClearAttributeString
+	call LoadFileInfo
+	call DisplayFileInfo
+	mov FileFound, 1
+	jmp SearchDirectoryLoop
+EndDirectorySearch:
 	xor si, si
 	xor di, di
 	ret
 ENDP
 
 
-LadujPodK PROC
+EnterSubdirectory PROC
 	xor si, si
 	xor di, di
 	mov cx, 64
-LadujNKat:
-	mov al, es:[si+158]	;laduj nazwe znalezionego pliku z bufora DTA
+LoadDirectoryName:
+	mov al, es:[si+158]	;load the name of the file found from the DTA buffer
 	cmp al, 0
-	je LadujNKatKoniec
-	mov Katalog[di], al
-	mov Katalog[di+1], 0
+	je EndLoadDirectoryName
+	mov DirectoryName[di], al
+	mov DirectoryName[di+1], 0
 	inc di
 	inc si
-	loop LadujNKat
-LadujNKatKoniec:
+	loop LoadDirectoryName
+EndLoadDirectoryName:
 	xor si, si
 	xor di, di
-	mov ah, 3bh		;ustalanie katalogu biezacego
-	lea dx, Katalog
+	mov ah, 3bh		;set the current directory
+	lea dx, DirectoryName
 	int 21h
 	ret
 ENDP
 
 
-PrzejdzWyzej PROC
+GoToParentDirectory PROC
 	xor di, di
-	mov ah, 47h		;sprawdz biezacy katalog
-	lea si, KatalogW
+	mov ah, 47h		;get the current directory
+	lea si, WorkingDirectory
 	mov dl, 0
 	int 21h
 	mov cx, 64
 	mov si, cx
 	dec si
-UsuwajS:
-	mov al, KatalogW[si]
+RemovePathLoop:
+	mov al, WorkingDirectory[si]
 	cmp al, '\'
-	je UsunSciezke
+	je RemovePath
 	dec si
-	loop UsuwajS
+	loop RemovePathLoop
 	xor si, si
 	xor di, di	
 	mov cx, 1eh
-	jmp OminINCSI
-UsunSciezke:
-	mov DlSciezki, si	;zachowaj dlugosc sciezki
-UsunSciezkeP:
+	jmp SkipIncrementSI
+RemovePath:
+	mov PathLength, si	;save the path length
+RemovePathPart:
 	mov cx, 1eh
 	inc si
-	jmp OOminINCSI
-OminINCSI:
-	mov KatalG, 1
-OOminINCSI:
-	mov al, KatalogW[si]
+	jmp CopyPathPart
+SkipIncrementSI:
+	mov RootDirectoryFlag, 1
+CopyPathPart:
+	mov al, WorkingDirectory[si]
 	cmp al, 0
-	je ZakonczUsuw
-	mov Katalog[di], al
-	mov Katalog[di+1], 0
+	je EndRemovePath
+	mov DirectoryName[di], al
+	mov DirectoryName[di+1], 0
 	inc di
-	loop UsunSciezkeP
-ZakonczUsuw:
+	loop RemovePathPart
+EndRemovePath:
 	xor si, si
 	xor di, di
-	mov KatalogWyzej[0], '\'
-	mov KatalogWyzej[1], 0
+	mov ParentDirectory[0], '\'
+	mov ParentDirectory[1], 0
 	inc di
-	mov cx, DlSciezki
-	cmp KatalG, 1
-	jne ZachowajSc
-	mov KatalG, 0
-	jmp OminPZachSc
-ZachowajSc:
-	mov al, KatalogW[si]
-	mov KatalogWyzej[di], al
-	mov KatalogWyzej[di+1], 0
+	mov cx, PathLength
+	cmp RootDirectoryFlag, 1
+	jne SavePath
+	mov RootDirectoryFlag, 0
+	jmp SkipSavePath
+SavePath:
+	mov al, WorkingDirectory[si]
+	mov ParentDirectory[di], al
+	mov ParentDirectory[di+1], 0
 	inc di
 	inc si
-	loop ZachowajSc
-OminPZachSc:
+	loop SavePath
+SkipSavePath:
 	xor di, di
 	xor si, si
-	mov ah, 4eh			;znajdz pierwszy plik
-	lea dx, WszystkiePl	
-	mov cx, Atr2
+	mov ah, 4eh			;find the first file
+	lea dx, AllFiles	
+	mov cx, SearchAttributes
 	int 21h
-	lea dx, KatalogWyzej		;przejdz do katalogu powyzej
-	mov ah, 3bh			;ustalanie katalogu biezacego
+	lea dx, ParentDirectory		;go to the parent directory
+	mov ah, 3bh			;set the current directory
 	int 21h
-	mov Wroc, 1
+	mov ReturningFlag, 1
 	ret
 ENDP
 
 
-Porownaj PROC
-	mov TenSam, 0
+CompareNames PROC
+	mov SameName, 0
 	xor di, di
 	mov cx, 0dh
 	xor si, si
-PorownajP:
-	mov al, Katalog[si]
+CompareNamesLoop:
+	mov al, DirectoryName[si]
 	mov ah, es:[158+si]
 	cmp al, ah
-	jne Rozne
+	jne NamesDifferent
 	cmp al, 0
-	je TakieSame
+	je NamesEqual
 	inc si
-	loop PorownajP
-	jmp TakieSame
-Rozne:
-	mov TenSam, 0
-	jmp PorowK
-TakieSame:
-	mov TenSam, 1
-PorowK:
+	loop CompareNamesLoop
+	jmp NamesEqual
+NamesDifferent:
+	mov SameName, 0
+	jmp EndCompareNames
+NamesEqual:
+	mov SameName, 1
+EndCompareNames:
 	xor si, si
 	ret
 ENDP
 
 
-Szukaj PROC
-	cmp Zapis, 1
-	je ZapisDoP
-	jmp ZapisN
-ZapisDoP:			;zapisywanie do pliku wlaczone - otworz plik
-	call OtworzPlikDoZapisu
-ZapisN:
-	cmp TylkoBiezacy, 1	;sprawdz, czy ma szukac tylko w biezacym katalogu
-	je SzukajTylkoWB
-	jmp SzukajW
-SzukajTylkoWB:
-	call SprBiezacyKatalog
-	cmp Znaleziony, 1
-	jne SzukajTylkoWB1	;jezeli nie znaleziono pliku
-	jmp SzukajTylkoWB2	;gdy przymajmniej jeden plik zostal znaleziony
-SzukajTylkoWB1:
-	lea dx, KomN
+SearchFiles PROC
+	cmp WriteEnabled, 1
+	je OpenSearchOutput
+	jmp SkipOpenSearchOutput
+OpenSearchOutput:			;file output is enabled: open the file
+	call OpenOutputFile
+SkipOpenSearchOutput:
+	cmp CurrentDirectoryOnly, 1	;check whether to search only the current directory
+	je SearchCurrentOnly
+	jmp SearchAllDirectories
+SearchCurrentOnly:
+	call SearchCurrentDirectory
+	cmp FileFound, 1
+	jne NoCurrentMatch	;if no file was found
+	jmp EndCurrentSearch	;if at least one file was found
+NoCurrentMatch:
+	lea dx, MessageN
 	mov ah, 09h
 	int 21h
-SzukajTylkoWB2:
-	jmp Koniec
-SzukajW:
+EndCurrentSearch:
+	jmp ExitProgram
+SearchAllDirectories:
 	xor di, di
-	lea si, Katalog		;zachowaj nazwe biezacego katalogu
+	lea si, DirectoryName		;save the current directory name
 	mov ah, 47h
 	mov dl, 0
 	int 21h
 	xor si, si
-	mov ZachBKatalog[0], '\'
+	mov SavedDirectory[0], '\'
 	inc di
 	mov cx, 0dh
-PrzepiszTab:
-	mov al, Katalog[si]
+CopyDirectoryBuffer:
+	mov al, DirectoryName[si]
 	cmp al, 0
-	je ZakPrzepisz
-	mov ZachBKatalog[di], al
-	mov ZachBKatalog[di+1], 0
+	je EndCopyDirectoryBuffer
+	mov SavedDirectory[di], al
+	mov SavedDirectory[di+1], 0
 	inc di
 	inc si
-	loop PrzepiszTab
-ZakPrzepisz:
+	loop CopyDirectoryBuffer
+EndCopyDirectoryBuffer:
 	xor si, si
 	xor di, di
-	cmp ZmienDysk, 1	;sprawdz, czy ma zostac zmieniony dysk
-	je ZmienD
-	jmp NieZmienD
-ZmienD:
-	mov ah, 19h		;sprawdz numer dysku biezacego
+	cmp ChangeDriveFlag, 1	;check whether to change drives
+	je ChangeDrive
+	jmp SkipChangeDrive
+ChangeDrive:
+	mov ah, 19h		;get the current drive number
 	int 21h
-	mov DyskBiezacy, al	;zachowaj numer dysku biezacego
-	mov dl, Dysk		;zaladuj do DL numer dysku logicznego
-	mov ah, 0eh		;funkcja sluzaca do zmiany dysku logicznego
+	mov OriginalDrive, al	;save the current drive number
+	mov dl, DriveNumber		;load the logical drive number into DL
+	mov ah, 0eh		;change the logical drive
 	int 21h
-NieZmienD:
-	mov Katalog[0], '\'	;zmien katalog na glowny
-	mov Katalog[1], 0
-	lea dx, Katalog
-       	mov ah, 3bh		;funkcja do zmiany katalogu
+SkipChangeDrive:
+	mov DirectoryName[0], '\'	;change to the root directory
+	mov DirectoryName[1], 0
+	lea dx, DirectoryName
+       	mov ah, 3bh		;change the directory
 	int 21h
 
-SprKatalogi:
-	cmp Wroc, 1
-	je NieSpr1Raz
-	call SprBiezacyKatalog	;przeszukaj biezacy katalog
-	mov ah, 4eh		;wyszukiwanie katalogu (pliku)
-	lea dx, WszystkiePl
-	mov cx, Atr2		;zaladuj atrybuty przeszukiwanych katalogow
+ScanDirectories:
+	cmp ReturningFlag, 1
+	je ResumeDirectoryScan
+	call SearchCurrentDirectory	;search the current directory
+	mov ah, 4eh		;find a directory (file)
+	lea dx, AllFiles
+	mov cx, SearchAttributes		;load the attributes of the directories to search
 	int 21h
-	jc PowrotP		;jezeli w katalogu nie ma plikow i podkatalogow
+	jc ReturnToParent		;if the directory contains no files or subdirectories
 	mov ax, es:[149]
 	test ax, 10h
-	jnz PrzejdzDoPK
-	jmp PSzukaniaK
-NieSpr1Raz:
-	mov Wroc, 0		;wyszukuj plki od poczatku
+	jnz GoToSubdirectory
+	jmp FindNextDirectory
+ResumeDirectoryScan:
+	mov ReturningFlag, 0		;search for files from the beginning
 	mov ah, 4eh
-	lea dx, WszystkiePl
-	mov cx, Atr2
+	lea dx, AllFiles
+	mov cx, SearchAttributes
 	int 21h
-	jc PowrotP
-	call Porownaj		;sprawdz, czy plik=przeszukiwany wczesniej katalog
-	cmp TenSam, 1		;jezeli tak skok do dalszego przeszukiwania
-	je PSzukaniaK
-NieSpr1RazP:
-	mov ah, 4fh		;powtarzaj dopoki nie poprzedni katalog
+	jc ReturnToParent
+	call CompareNames		;check whether the file is the previously searched directory
+	cmp SameName, 1		;if so, jump to continue searching
+	je FindNextDirectory
+ResumeDirectoryLoop:
+	mov ah, 4fh		;repeat until the previous directory is found
 	int 21h
-	jc PowrotP
-	call Porownaj
-	cmp TenSam, 1
-	je PSzukaniaK
-	jmp NieSpr1RazP
-PSzukaniaK:
+	jc ReturnToParent
+	call CompareNames
+	cmp SameName, 1
+	je FindNextDirectory
+	jmp ResumeDirectoryLoop
+FindNextDirectory:
 	mov ah, 4fh
 	int 21h
-	jc PowrotP		;jezeli nie znaleziony zakoncz petle
-	mov ax, es:[149]	;laduj bajt atrybutow
-	test ax, 10h		;testuj, czy to podkatalog
-	jnz PrzejdzDoPK		;jezeli tak przejdz do niego
-	jmp PSzukaniaK
-PrzejdzDoPk:
+	jc ReturnToParent		;end the loop if not found
+	mov ax, es:[149]	;load the attribute byte
+	test ax, 10h		;test whether this is a subdirectory
+	jnz GoToSubdirectory		;if so, enter it
+	jmp FindNextDirectory
+GoToSubdirectory:
 	mov ah, es:[158]
 	cmp ah, '.'
-	je PSzukaniaK
-	call LadujPodK
-	jmp SprKatalogi
-PowrotP:
-	mov Katalog[0], 0
-	mov ah, 47h		;pytanie o katalog biezacy
-	lea si, Katalog
-	mov dl, 0		;dysk biezacy
+	je FindNextDirectory
+	call EnterSubdirectory
+	jmp ScanDirectories
+ReturnToParent:
+	mov DirectoryName[0], 0
+	mov ah, 47h		;get the current directory
+	lea si, DirectoryName
+	mov dl, 0		;current drive
 	int 21h
 	xor si, si
-	cmp Katalog[0], 0	;jezeli nie glowny to wartosc sie zmieni
-	je KatGlowny		;jezeli glowny - zakoncz
-NieKatG:
-	call PrzejdzWyzej
-	jmp SprKatalogi
-KatGlowny:
+	cmp DirectoryName[0], 0	;the value changes unless this is the root directory
+	je AtRootDirectory		;finish if this is the root directory
+NotRootDirectory:
+	call GoToParentDirectory
+	jmp ScanDirectories
+AtRootDirectory:
 
-	cmp ZmienDysk, 1	;sprawdz, czy byl zmieniany dysk
-	je PDyskB
-	jmp NPDyskuB
-PDyskB:
-	mov dl, DyskBiezacy
-	mov ah, 0eh		;przywroc dysk biezacy
+	cmp ChangeDriveFlag, 1	;check whether the drive was changed
+	je RestoreDrive
+	jmp SkipRestoreDrive
+RestoreDrive:
+	mov dl, OriginalDrive
+	mov ah, 0eh		;restore the original drive
 	int 21h
-NPDyskuB:
+SkipRestoreDrive:
 	xor di, di
 	xor si, si
-	mov ah, 3bh		;przywroc katalog sprzed wyszukiwania
-	lea dx, ZachBKatalog
+	mov ah, 3bh		;restore the directory from before the search
+	lea dx, SavedDirectory
 	int 21h
-	cmp Znaleziony, 1
-	jne NieZnaleziono
-	jmp koniec
+	cmp FileFound, 1
+	jne NoFilesFound
+	jmp ExitProgram
 	ret
-NieZnaleziono:
-	lea dx, KomN
+NoFilesFound:
+	lea dx, MessageN
 	mov ah, 09h
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
 
 Start:
 	mov ax, @data
-	mov ds, ax		;zaladuj do DS adres segmentu danych
-	call CzySaParametry
-	call PobierzParametry
-	call PobierzNazwePliku
-	call Szukaj
-Koniec:
-	call ZamkPlDoZapisu	;zamknij plik
-	mov ax, 4c00h		;zakoncz program
+	mov ds, ax		;load the data segment address into DS
+	call CheckParameters
+	call GetParameters
+	call GetFileName
+	call SearchFiles
+ExitProgram:
+	call CloseOutputFile	;close the file
+	mov ax, 4c00h		;exit the program
 	int 21h
 
 End Start

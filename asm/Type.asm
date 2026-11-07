@@ -1,88 +1,89 @@
+; Displays a text file on the screen using MS-DOS services.
 ;***http://halun.pl/***
 .model tiny
 
 .stack 64
 
 .data
-	Kom1 db 'Program wyswietla zawartosc plikow tekstowych',13,10,'$'
-	Kom2 db 13,10,'Napisz [dysk:][sciezka]nazwapliku',13,10,'$'
-	DlLiniiParam db ?			;dlugosc linii parametrow
-	NazwaPliku db 15 dup (?)
-	DojscieDoPliku dw ?
-	Blad2 db 'Nie znaleziono pliku',13,10,'$'
-	Blad3 db 'Nie znaleziono sciezki',13,10,'$'
-	Blad4 db 'Zbyt wiele otwartych plikow',13,10,'$'
-	Blad5 db 'Dostep niemozliwy',13,10,'$'
-	BuforOperacji db 256 dup (?)
+	Message1 db 'Program wyswietla zawartosc plikow tekstowych',13,10,'$'
+	Message2 db 13,10,'Napisz [dysk:][sciezka]nazwapliku',13,10,'$'
+	CommandLineLength db ?			;command line length
+	FileName db 15 dup (?)
+	FileHandle dw ?
+	Error2 db 'Nie znaleziono pliku',13,10,'$'
+	Error3 db 'Nie znaleziono sciezki',13,10,'$'
+	Error4 db 'Zbyt wiele otwartych plikow',13,10,'$'
+	Error5 db 'Dostep niemozliwy',13,10,'$'
+	IOBuffer db 256 dup (?)
 
 .code
 
-BrakParametrow PROC
+NoParameters PROC
 	mov ah, 09h
-	lea dx, Kom1
+	lea dx, Message1
 	int 21h
-	lea dx, Kom2
+	lea dx, Message2
 	int 21h
 	ret
 ENDP
 
 
-BladOtwieraniaPliku PROC
+FileOpenError PROC
 	cmp ax, 2
-	je B2
+	je OpenError2
 	cmp ax, 3
-	je B3
+	je OpenError3
 	cmp ax, 4
-	je B4
+	je OpenError4
 	cmp ax, 5
-	je B5
-B2:	lea dx, Blad2
-	jmp WyswKom
-B3:	lea dx, Blad3
-	jmp WyswKom
-B4:	lea dx, Blad4
-	jmp WyswKom
-B5:	lea dx, Blad5
-	jmp WyswKom
-WyswKom:
+	je OpenError5
+OpenError2:	lea dx, Error2
+	jmp DisplayMessage
+OpenError3:	lea dx, Error3
+	jmp DisplayMessage
+OpenError4:	lea dx, Error4
+	jmp DisplayMessage
+OpenError5:	lea dx, Error5
+	jmp DisplayMessage
+DisplayMessage:
 	mov ah, 09h
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
 
-CzyJestParametr PROC
-	mov ah, 62h			;znajdz adres bloku PSP
+CheckParameter PROC
+	mov ah, 62h			;find the PSP address
 	int 21h
-	mov es, bx			;zaladuj adres bloku PSP do ES
+	mov es, bx			;load the PSP address into ES
 	mov bl,ES:[80h]
-	cmp bl, 0			;sprawdz, czy sa parametry		
-	jne SaParametry
-	call BrakParametrow
-	jmp Koniec			;jezeli bez parametrow - zakoncz
-SaParametry:
-	mov DlLiniiParam, bl
+	cmp bl, 0			;check whether parameters are present
+	jne ParametersPresent
+	call NoParameters
+	jmp ExitProgram			;exit if there are no parameters
+ParametersPresent:
+	mov CommandLineLength, bl
 	ret
 ENDP
 
 
-ZaladujNazwePliku PROC
-	mov bx, 81h			;zaladuj przesuniecie linii parametrow
-	mov si, bx			;...do rejestru SI
-	mov cl, DlLiniiParam		;zaladuj dlugosc linii parametrow
-	lea di, NazwaPliku		;zaladuj offset tablicy NazwaPliku
-Petla1:
+LoadFileName PROC
+	mov bx, 81h			;load the command line offset
+	mov si, bx			;...into SI
+	mov cl, CommandLineLength		;load the command line length
+	lea di, FileName		;load the offset of the FileName array
+CopyLoop1:
 	mov al, es:[si]
 	cmp al, 20h
-	je Spacja
+	je SpaceFound
 	mov ds:[di], al
 	inc di
-Spacja:	dec cx
+SpaceFound:	dec cx
 	inc si
-	jcxz KoniecPetli1
-	jmp petla1
-KoniecPetli1:
-	mov ah, 0			;zaladuj na koniec lancucha znak '0'
+	jcxz EndCopyLoop1
+	jmp CopyLoop1
+EndCopyLoop1:
+	mov ah, 0			;append a zero byte to the string
 	mov ds:[di], ah
 	xor si, si
 	xor di, di
@@ -90,69 +91,69 @@ KoniecPetli1:
 ENDP
 
 
-ZaladujPlik PROC
-	lea dx, nazwapliku
+OpenFile PROC
+	lea dx, FileName
 	mov ax, 3d00h
 	int 21h
-	jnb NieMaBledu
-	call BladOtwieraniaPliku
-NieMaBledu:
-	mov DojscieDoPliku, ax
+	jnb NoError
+	call FileOpenError
+NoError:
+	mov FileHandle, ax
 	ret
 ENDP
 
 
-Plik2Ekran PROC
-WyPlik:
-	lea dx, BuforOperacji
-	mov bx, DojscieDoPliku		;zaladuj numer dojscia do pliku
-	mov ah, 3fh		;funkcja czytania z pliku
-	mov cx,	256		;zaladuj ilosc bajtow do odczytania
+FileToScreen PROC
+ReadFileLoop:
+	lea dx, IOBuffer
+	mov bx, FileHandle		;load the file handle
+	mov ah, 3fh		;read from the file
+	mov cx,	256		;load the number of bytes to read
 	int 21h
 	cmp ax, 0
-	je WyPlikK
+	je EndReadFileLoop
 	mov cx, ax
-	call NaEkran
-	jmp WyPlik
-WyPlikK:
+	call PrintBuffer
+	jmp ReadFileLoop
+EndReadFileLoop:
 	ret
 ENDP
 
 
-NaEkran PROC
+PrintBuffer PROC
 	xor si, si
-PetlaEkran:
-	mov dl, BuforOperacji[si]
-	mov ah, 02h		;wypisz znak
+ScreenLoop:
+	mov dl, IOBuffer[si]
+	mov ah, 02h		;print a character
 	int 21h
 	inc si
 	dec cx
-	jcxz KPetlaEkran
-	jmp PetlaEkran
-KPetlaEkran:
+	jcxz EndScreenLoop
+	jmp ScreenLoop
+EndScreenLoop:
 	xor si, si
 	ret
 ENDP
 
 
-ZamknijPlik PROC
+CloseFile PROC
 	mov ah, 3Eh
-	mov bx, DojscieDoPliku
+	mov bx, FileHandle
 	int 21h
 	ret
 ENDP
 
 
-Start:					;rozpoczecie pracy programu
+Start:					;program entry point
 	mov ax, @data
 	mov ds, ax
-	call CzyJestParametr
-	call ZaladujNazwePliku
-	call ZaladujPlik
-	call Plik2Ekran
-Zamknij:
-	call ZamknijPlik
-Koniec:	mov ax, 4c00h			;zakonczenie pracy programu
+	call CheckParameter
+	call LoadFileName
+	call OpenFile
+	call FileToScreen
+CloseBeforeExit:
+	call CloseFile
+ExitProgram:	mov ax, 4c00h			;exit the program
 	int 21h
 
 

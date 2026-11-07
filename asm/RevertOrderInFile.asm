@@ -1,199 +1,201 @@
+; Unfinished program intended to reverse file contents using MS-DOS services.
+; The data-reading routine is empty in this archived version.
 ;***http://halun.pl/***
 .model small
 .stack 128
 .386
 .data
-	Plik1 db 15 dup (?)
-	Plik2 db 15 dup (?)
-	Uchwyt1 dw ?
-	Uchwyt2 dw ?
-	Bufor db 256 dup (?)
-	Znak db ?
-	DlLiniiParam db ?
-	Dlugosc dw 0
-	Wsk1 dw 0
-	Wsk2 dw 0
-	Kom1 db 'Program sluzy do odwracania zawartosci plikow tekstowych',13,10,13,10,'$'
-	Kom2 db 'Wywolanie:    ODWROC  plik1 plik2',13,10,13,10,'$'
-	Kom3 db 'plik1 - plik do odczytu',13,10,'$'
-	Kom4 db 'plik2 - plik w ktorym odwrocona zawartosc pierwszego bedzie zapisana',13,10,'$'
-	Kom5 db 'BLAD: NIEPRAWIDLOWE PARAMETRY',13,10,13,10,'$'
-	Kom6 db 'BLAD: NIE MOZNA OTWORZYC PLIKU DO ODCZYTU',13,10,'$'
-	Kom7 db 'BLAD: NIE MOZNA UTWORZYC PLIKU DO ZAPISU',13,10,'$'
+	InputFileName db 15 dup (?)
+	OutputFileName db 15 dup (?)
+	InputFileHandle dw ?
+	OutputFileHandle dw ?
+	Buffer db 256 dup (?)
+	Character db ?
+	CommandLineLength db ?
+	DataLength dw 0
+	FilePositionHigh dw 0
+	FilePositionLow dw 0
+	Message1 db 'Program sluzy do odwracania zawartosci plikow tekstowych',13,10,13,10,'$'
+	Message2 db 'Wywolanie:    ODWROC  plik1 plik2',13,10,13,10,'$'
+	Message3 db 'plik1 - plik do odczytu',13,10,'$'
+	Message4 db 'plik2 - plik w ktorym odwrocona zawartosc pierwszego bedzie zapisana',13,10,'$'
+	Message5 db 'BLAD: NIEPRAWIDLOWE PARAMETRY',13,10,13,10,'$'
+	Message6 db 'BLAD: NIE MOZNA OTWORZYC PLIKU DO ODCZYTU',13,10,'$'
+	Message7 db 'BLAD: NIE MOZNA UTWORZYC PLIKU DO ZAPISU',13,10,'$'
 .code
-Pomoc PROC
+ShowHelp PROC
 	mov ah, 09h
-	lea dx, Kom1
+	lea dx, Message1
 	int 21h
-	lea dx, Kom2
+	lea dx, Message2
 	int 21h
-	lea dx, Kom3
+	lea dx, Message3
 	int 21h
-	lea dx, Kom4
+	lea dx, Message4
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
-CzySaParametry PROC
-	mov ah, 62h			;pobierz adres PSP
+CheckParameters PROC
+	mov ah, 62h			;get the PSP address
 	int 21h
-	mov es, bx			;i zapisz go w ES
+	mov es, bx			;and save it in ES
 	xor ax, ax
 	mov al, es:[80h]
 	cmp al, 2
-	jna BrakParametrow		;jezeli wiersze WE nie dluzszy niz 2
+	jna NoParameters		;if the input line is no longer than 2 characters
 	mov cx, ax
 	ret
-BrakParametrow:
-	call Pomoc
-	jmp Koniec
+NoParameters:
+	call ShowHelp
+	jmp ExitProgram
 ENDP
 
-PobierzParametry PROC
+GetParameters PROC
 	mov si, 81h
 	xor di, di
-PetlaPar1:
+ParameterLoop1:
 	mov al, es:[si]
 	cmp al, 20h
-	jne PetlaPar2		;jezeli znak rozny niz spacja przejdz dalej
+	jne ParameterLoop2		;continue if the character is not a space
 	inc si
 	dec cx
-	jz BladP		;jezeli koniec wiersza wejsciowego - zakoncz
-	jmp PetlaPar1
-PetlaPar2:
+	jz ParameterError		;finish if this is the end of the input line
+	jmp ParameterLoop1
+ParameterLoop2:
 	mov al, es:[si]
 	cmp al, 20h
-	je PetlaPar3		;gdy spacja - zakoncz pobieranie pierwszej nazwy
-	mov Plik1[di], al
-	mov Plik1[di+1], 0
+	je ParameterLoop3		;stop reading the first name at a space
+	mov InputFileName[di], al
+	mov InputFileName[di+1], 0
 	inc si
 	inc di
 	dec cx
-	jz BladP
-	jmp PetlaPar2
-PetlaPar3:
+	jz ParameterError
+	jmp ParameterLoop2
+ParameterLoop3:
 	xor di, di
 	mov al, es:[si]
 	cmp al, 20h
-	jne PetlaPar4		;jezeli znak rozny niz spacja przejdz dalej
+	jne ParameterLoop4		;continue if the character is not a space
 	inc si
 	dec cx
-	jz BladP		;jezeli koniec wiersza wejsciowego - zakoncz
-	jmp PetlaPar3
-PetlaPar4:
+	jz ParameterError		;finish if this is the end of the input line
+	jmp ParameterLoop3
+ParameterLoop4:
 	mov al, es:[si]
 	cmp al, 20h
-	je KPetliP		;gdy spacja - zakoncz pobieranie drugiej nazwy
-	mov Plik2[di], al
-	mov Plik2[di+1], 0
+	je EndParameterLoop		;stop reading the second name at a space
+	mov OutputFileName[di], al
+	mov OutputFileName[di+1], 0
 	inc si
 	inc di
 	dec cx
-	jz KPetliP
-	jmp PetlaPar4
-KPetliP:
+	jz EndParameterLoop
+	jmp ParameterLoop4
+EndParameterLoop:
 	xor si, si
 	xor di, di
 	ret
-BladP:
-	lea dx, Kom5
+ParameterError:
+	lea dx, Message5
 	mov ah, 09h
 	int 21h
-	call Pomoc
+	call ShowHelp
 ENDP
 
-OtworzDoOdczytu PROC
+OpenInputFile PROC
 	mov ax, 3d00h
-	lea dx, Plik1
+	lea dx, InputFileName
 	int 21h
-	jc BlPlik1
-	mov Uchwyt1, ax
+	jc InputFileError
+	mov InputFileHandle, ax
 	ret
-BlPlik1:
-	lea dx, Kom6
+InputFileError:
+	lea dx, Message6
 	mov ah, 09h
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
-OtworzDoZapisu PROC
+OpenOutputFile PROC
 	mov ah, 5bh
-	lea dx, Plik2
+	lea dx, OutputFileName
 	xor cx, cx
 	int 21h
-	jc BlPlik2
-	mov Uchwyt2, ax
+	jc OutputFileError
+	mov OutputFileHandle, ax
 	ret
-BlPlik2:
-	lea dx, Kom7
+OutputFileError:
+	lea dx, Message7
 	mov ah, 09h
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
-OdczytajDane PROC
+ReadData PROC
 
 	ret
 ENDP
 
-ZapiszDane PROC
-	cmp Dlugosc, 0
-	je KPetliZapisu
-	mov cx, Dlugosc
+WriteData PROC
+	cmp DataLength, 0
+	je EndWriteLoop
+	mov cx, DataLength
 	mov si, cx
-PetlaZap:
+WriteLoop:
 	push cx
-	mov bx, Uchwyt2
+	mov bx, OutputFileHandle
 	mov ah, 40h
 	mov cx, 1
-	mov al, Bufor[si]
+	mov al, Buffer[si]
 	cmp al, 13
-	je Zn13
+	je CarriageReturn
 	cmp al, 10
-	je Zn10
-	mov Znak, al
-	jmp ZnK
-Zn13:
-	mov Znak, 10
-	jmp ZnK
-Zn10:
-	mov Znak, 13
-ZnK:
-	lea dx, Znak
+	je LineFeed
+	mov Character, al
+	jmp WriteCharacter
+CarriageReturn:
+	mov Character, 10
+	jmp WriteCharacter
+LineFeed:
+	mov Character, 13
+WriteCharacter:
+	lea dx, Character
 	int 21h
 	pop cx
 	dec si
 	dec cx
-	jz KPetliZapisu
-	jmp PetlaZap
-KPetliZapisu:
+	jz EndWriteLoop
+	jmp WriteLoop
+EndWriteLoop:
 	ret
 ENDP
 
-Plik2Plik PROC
-	mov bx, Uchwyt1
+FileToFile PROC
+	mov bx, InputFileHandle
 	mov ax, 4202h
 	xor cx, cx
 	xor dx, dx
 	int 21h
-	mov Wsk1, dx
-	mov Wsk2, ax
-P2PPetla:
-	call OdczytajDane
-	call ZapiszDane
-	cmp Dlugosc, 0
-	je P2PKoniec
-	jmp P2pPetla	
-P2PKoniec:
+	mov FilePositionHigh, dx
+	mov FilePositionLow, ax
+FileToFileLoop:
+	call ReadData
+	call WriteData
+	cmp DataLength, 0
+	je EndFileToFile
+	jmp FileToFileLoop	
+EndFileToFile:
 	ret
 ENDP
 
-ZamknijPliki PROC
+CloseFiles PROC
 	mov ah, 3eh
-	mov bx, Uchwyt1
+	mov bx, InputFileHandle
 	int 21h
 	mov ah, 3eh
-	mov bx, Uchwyt2
+	mov bx, OutputFileHandle
 	int 21h
 	ret
 ENDP
@@ -201,13 +203,13 @@ ENDP
 Start:
 	mov ax, @data
 	mov ds, ax
-	call CzySaParametry
-	call PobierzParametry
-	call OtworzDoOdczytu
-	call OtworzDoZapisu
-	call Plik2Plik
-Koniec:
-	call ZamknijPliki
+	call CheckParameters
+	call GetParameters
+	call OpenInputFile
+	call OpenOutputFile
+	call FileToFile
+ExitProgram:
+	call CloseFiles
 	mov ax, 4c00h
 	int 21h
 End Start

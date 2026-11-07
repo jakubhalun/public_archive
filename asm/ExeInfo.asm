@@ -1,3 +1,5 @@
+; Identifies COM/EXE files and displays EXE header information using MS-DOS services.
+; Includes optional Windows header checks and logging to a file.
 ;********************************************************************
 ;*     ExeInfo                                                      *
 ;*     Copyright (C) 2001 Jakub Halun				    *
@@ -10,31 +12,31 @@ jumps
 Start:
 	mov ax, @data
 	mov ds, ax
-	call SprawdzParam
-	call OtworzPliki
-	call SprawdzPlik
-Koniec:
-	call ZamknijPliki
+	call CheckParameters
+	call OpenFiles
+	call CheckFile
+ExitProgram:
+	call CloseFiles
 	mov ax, 4c00h
 	int 21h
 
-Pomoc PROC
+ShowHelp PROC
 	mov ah, 9h
-	lea dx, Kom0
+	lea dx, Message0
 	int 21h
-	lea dx, Kom1
+	lea dx, Message1
 	int 21h
-	lea dx, Kom2
+	lea dx, Message2
 	int 21h
-	lea dx, Kom3
+	lea dx, Message3
 	int 21h
-	lea dx, Kom5
+	lea dx, Message5
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 	ret
 ENDP
 
-SprawdzParam PROC
+CheckParameters PROC
 	xor di, di
 	xor si, si
 	mov ah, 62h
@@ -44,39 +46,39 @@ SprawdzParam PROC
 	jb Help
 	xor cx, cx
 	mov cl, es:[80h]
-Sprawdz:
+ScanParameters:
 	inc si
 	cmp si, cx
-	ja KPParam
+	ja EndParameterCheck
 	cmp byte ptr es:[si+80h], ' '
-	je Sprawdz
+	je ScanParameters
 	cmp byte ptr es:[si+80h], '/'
-	je Parametr
+	je ParseOption
 	mov al, es:[si+80h]
-	mov Plik[di], al
+	mov InputFileName[di], al
 	inc di
-	jmp Sprawdz
-Parametr:
+	jmp ScanParameters
+ParseOption:
 	xor di, di
-	cmp Plik[0], 0
+	cmp InputFileName[0], 0
 	je Help
 	inc si
 	cmp si, cx
 	ja Help
 	cmp byte ptr es:[si+80h], 'w'
-	je Wind
+	je EnableWindowsCheck
 	cmp byte ptr es:[si+80h], 'W'
-	je Wind
+	je EnableWindowsCheck
 	cmp byte ptr es:[si+80h], 'l'
-	je ZpPl
+	je EnableLogging
 	cmp byte ptr es:[si+80h], 'L'
-	je ZpPl
-	jmp Sprawdz
-Wind:
-	mov WinT, 1
-	jmp Sprawdz
-ZpPl:
-	mov ZapisT, 1
+	je EnableLogging
+	jmp ScanParameters
+EnableWindowsCheck:
+	mov WindowsCheckEnabled, 1
+	jmp ScanParameters
+EnableLogging:
+	mov LoggingEnabled, 1
 	inc si
 	cmp si, cx
 	ja Help
@@ -89,480 +91,480 @@ ZpPl:
 	je Help
 	cmp byte ptr es:[si+80h], '/'
 	je Help
-ZpPlPetla:
+LogNameLoop:
 	mov al, es:[si+80h]
 	cmp al, ' '
-	je KZpPlPetla
+	je EndLogNameLoop
 	cmp al, '/'
-	je KZpPlPetla
-	mov PlikDoZ[di], al
+	je EndLogNameLoop
+	mov OutputFileName[di], al
 	inc di
 	inc si
 	cmp si, cx
-	ja KPParam
-	jmp ZpPlPetla
-KZpPlPetla:
+	ja EndParameterCheck
+	jmp LogNameLoop
+EndLogNameLoop:
 	xor di, di
-	jmp Sprawdz
+	jmp ScanParameters
 Help:
-	call Pomoc
-KPParam:
+	call ShowHelp
+EndParameterCheck:
 	xor di, di
 	xor si, si
-	cmp Plik[0], 0
+	cmp InputFileName[0], 0
 	je Help
 	ret
 ENDP
 
-OtworzPliki PROC
-	lea dx, Plik
-	mov ax, 3d00h		;otwarcie pliku
+OpenFiles PROC
+	lea dx, InputFileName
+	mov ax, 3d00h		;open the file
 	int 21h
-	jc BladX
-	mov Uchwyt, ax
+	jc InputFileError
+	mov FileHandle, ax
 	xor si, si
-SprDlN:
-	cmp Plik[si], 0
-	je KSprDlN
+CheckNameLength:
+	cmp InputFileName[si], 0
+	je EndNameLengthCheck
 	inc si
-	jmp SprDlN
-KSprDlN:
+	jmp CheckNameLength
+EndNameLengthCheck:
 	inc si
 	inc si
-	mov DlNazwyPl, si
-	mov Plik[si-2], 13
-	mov Plik[si-1], 10
-	mov Plik[si], '$'
+	mov FileNameLength, si
+	mov InputFileName[si-2], 13
+	mov InputFileName[si-1], 10
+	mov InputFileName[si], '$'
 	xor si, si
-	cmp ZapisT, 1		;sprawdz czy utworzyc plik.log
-	je PlikDZap
-Powrot1:
+	cmp LoggingEnabled, 1		;check whether to create a log file
+	je CreateLogFile
+ReturnFromOpen:
 	ret
-PlikDZap:
-	mov ax, 5b00h		;tworzenie nowego pliku
-	lea dx, PlikDoZ
+CreateLogFile:
+	mov ax, 5b00h		;create a new file
+	lea dx, OutputFileName
 	xor cx, cx
 	int 21h
-	jc BladY
-	mov UchwytZ, ax
-	jmp Powrot1
-BladX:
+	jc OutputFileError
+	mov OutputFileHandle, ax
+	jmp ReturnFromOpen
+InputFileError:
 	cmp ax, 2
-	je BladX2
+	je InputError2
 	cmp ax, 3
-	je BladX3
+	je InputError3
 	cmp ax, 4
-	je BladX4
+	je InputError4
 	cmp ax, 5
-	je BladX5
-BladY:
+	je InputError5
+OutputFileError:
 	cmp ax, 2
-	je BladY2
+	je OutputError2
 	cmp ax, 3
-	je BladY3
+	je OutputError3
 	cmp ax, 4
-	je BladY4
+	je OutputError4
 	cmp ax, 5
-	je BladY5
+	je OutputError5
 	cmp ax, 80
-	je BladY80
-BladX2:
+	je OutputError80
+InputError2:
 	mov ah, 09h
-	lea dx, Blad0
+	lea dx, Error0
 	int 21h
-	lea dx, Blad2
+	lea dx, Error2
 	int 21h
-	jmp Koniec
-BladX3:
+	jmp ExitProgram
+InputError3:
 	mov ah, 09h
-	lea dx, Blad0
+	lea dx, Error0
 	int 21h
-	lea dx, Blad3
+	lea dx, Error3
 	int 21h
-	jmp Koniec
-BladX4:
+	jmp ExitProgram
+InputError4:
 	mov ah, 09h
-	lea dx, Blad0
+	lea dx, Error0
 	int 21h
-	lea dx, Blad4
+	lea dx, Error4
 	int 21h
-	jmp Koniec
-BladX5:
+	jmp ExitProgram
+InputError5:
 	mov ah, 09h
-	lea dx, Blad0
+	lea dx, Error0
 	int 21h
-	lea dx, Blad5
+	lea dx, Error5
 	int 21h
-	jmp Koniec
-BladY2:
+	jmp ExitProgram
+OutputError2:
 	mov ah, 09h
-	lea dx, Blad00
+	lea dx, Error00
 	int 21h
-	lea dx, Blad2
+	lea dx, Error2
 	int 21h
-	jmp Koniec
-BladY3:
+	jmp ExitProgram
+OutputError3:
 	mov ah, 09h
-	lea dx, Blad00
+	lea dx, Error00
 	int 21h
-	lea dx, Blad3
+	lea dx, Error3
 	int 21h
-	jmp Koniec
-BladY4:
+	jmp ExitProgram
+OutputError4:
 	mov ah, 09h
-	lea dx, Blad00
+	lea dx, Error00
 	int 21h
-	lea dx, Blad4
+	lea dx, Error4
 	int 21h
-	jmp Koniec
-BladY5:
+	jmp ExitProgram
+OutputError5:
 	mov ah, 09h
-	lea dx, Blad00
+	lea dx, Error00
 	int 21h
-	lea dx, Blad5
+	lea dx, Error5
 	int 21h
-	jmp Koniec
-BladY80:
+	jmp ExitProgram
+OutputError80:
 	mov ah, 09h
-	lea dx, Blad0
+	lea dx, Error0
 	int 21h
-	lea dx, Blad80	
+	lea dx, Error80	
 	int 21h
-CzytajZnak:
-	mov ah, 07h		;czytaj znak
+ReadCharacter:
+	mov ah, 07h		;read a character
 	int 21h
 	cmp al, 116
-	je Nadpisz
+	je Overwrite
 	cmp al, 110
-	je NieNadpisuj
-	jmp CzytajZnak
-Nadpisz:
-	mov ah, 3ch		;tworzenie pliku z nadpisaniem starego
-	lea dx, PlikDoZ
+	je DoNotOverwrite
+	jmp ReadCharacter
+Overwrite:
+	mov ah, 3ch		;create a file, overwriting the old one
+	lea dx, OutputFileName
 	int 21h
-	jc BladY
-	mov UchwytZ, ax
-	jmp Powrot1
-NieNadpisuj:
+	jc OutputFileError
+	mov OutputFileHandle, ax
+	jmp ReturnFromOpen
+DoNotOverwrite:
 	mov ah, 09h
-	lea dx, Kom80
+	lea dx, Message80
 	int 21h
-	mov ah, 0ah		;odczyt wiersza z klawiatury
-	mov PlikDoZ[0], 128	;maksymalna dlugosc ciagu
-	lea dx, PlikDoZ
+	mov ah, 0ah		;read a line from the keyboard
+	mov OutputFileName[0], 128	;maximum string length
+	lea dx, OutputFileName
 	int 21h
 	xor ax, ax
-	mov al, PlikDoZ[1]
-	mov di, ax		;dlugosc odczytanego ciagu
-	mov PlikDoZ[di+2], 0
+	mov al, OutputFileName[1]
+	mov di, ax		;length of the string read
+	mov OutputFileName[di+2], 0
 	xor di, di
-	lea dx, PlikDoZ + 2
-	mov ax, 5b00h		;tworzenie nowego pliku
+	lea dx, OutputFileName + 2
+	mov ax, 5b00h		;create a new file
 	xor cx, cx
 	int 21h
-	jc BladY
-	mov UchwytZ, ax
-	jmp Powrot1
+	jc OutputFileError
+	mov OutputFileHandle, ax
+	jmp ReturnFromOpen
 ENDP
 
-Zapisuj MACRO DlugoscC, NazwaC
-	mov bx, UchwytZ
+WriteString MACRO StringLength, StringAddress
+	mov bx, OutputFileHandle
 	mov ah, 40h
-	mov cx, DlugoscC
-	lea dx, NazwaC
+	mov cx, StringLength
+	lea dx, StringAddress
 	int 21h
-	jc BladPrzyZ
+	jc WriteError
 ENDM
 
-PobD MACRO adr
-	mov si, adr
-	call PobierzDane
+ReadAndPrintData MACRO Address
+	mov si, Address
+	call ReadData
 	mov ah, 09h
-	lea dx, DaneD1
+	lea dx, HexText
 	int 21h
 ENDM
 
 H2D MACRO
 	call Hex2Dec
 	mov ah, 09h
-	lea dx, DaneD2
+	lea dx, DecimalText
 	int 21h
 ENDM
 
-SprawdzPlik PROC
+CheckFile PROC
 	xor di, di
 	mov ah, 3fh
-	mov bx, Uchwyt
+	mov bx, FileHandle
 	mov cx, 256
-	lea dx, Bufor
+	lea dx, Buffer
 	int 21h
-	cmp Bufor[0], 0e9h	;plik typu COM
-	je PlikCOM
-	cmp Bufor[0], 0ebh
-	je PlikCOM
-	cmp Bufor[0], 0b8h
-	je PlikCOM
-	cmp Bufor[0], 0bbh
-	je PlikCOM
-	cmp Bufor[0], 'M'
-	jne Nieznany		;nieznany format pliku
-	cmp Bufor[1], 'Z'
-	jne Nieznany	
+	cmp Buffer[0], 0e9h	;COM file
+	je COMFile
+	cmp Buffer[0], 0ebh
+	je COMFile
+	cmp Buffer[0], 0b8h
+	je COMFile
+	cmp Buffer[0], 0bbh
+	je COMFile
+	cmp Buffer[0], 'M'
+	jne UnknownFormat		;unknown file format
+	cmp Buffer[1], 'Z'
+	jne UnknownFormat	
 	mov ah, 09h
-	lea dx, Kom9
+	lea dx, Message9
 	int 21h
-	lea dx, Plik
+	lea dx, InputFileName
 	int 21h
-	lea dx, KomA
+	lea dx, MessageA
 	int 21h
-	lea dx, Kom7
+	lea dx, Message7
 	int 21h
-	cmp ZapisT, 1
-	je ZapisEXE1
-	jmp OminEXE1
-ZapisEXE1:
-	Zapisuj 13, Kom9
-	Zapisuj DlNazwyPl, Plik
-	Zapisuj 8, KomA
-	Zapisuj 21, Kom7
-OminEXE1:
+	cmp LoggingEnabled, 1
+	je WriteEXE1
+	jmp SkipEXE1
+WriteEXE1:
+	WriteString 13, Message9
+	WriteString FileNameLength, InputFileName
+	WriteString 8, MessageA
+	WriteString 21, Message7
+SkipEXE1:
 	mov ah, 09h
-	lea dx, Km1
+	lea dx, HeaderMessage1
 	int 21h
-	PobD 2
+	ReadAndPrintData 2
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE2
-	jmp OminEXE2
-ZapisEXE2:
-	Zapisuj 26, Km1
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE2:
+	cmp LoggingEnabled, 1
+	je WriteEXE2
+	jmp SkipEXE2
+WriteEXE2:
+	WriteString 26, HeaderMessage1
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE2:
 	mov ah, 09h
-	lea dx, Km2
+	lea dx, HeaderMessage2
 	int 21h
-	PobD 4
+	ReadAndPrintData 4
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE3
-	jmp OminEXE3
-ZapisEXE3:
-	Zapisuj 56, Km2
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE3:
+	cmp LoggingEnabled, 1
+	je WriteEXE3
+	jmp SkipEXE3
+WriteEXE3:
+	WriteString 56, HeaderMessage2
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE3:
 	mov ah, 09h
-	lea dx, Km3
+	lea dx, HeaderMessage3
 	int 21h
-	PobD 6
+	ReadAndPrintData 6
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE4
-	jmp OminEXE4
-ZapisEXE4:
-	Zapisuj 42, Km3
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE4:
+	cmp LoggingEnabled, 1
+	je WriteEXE4
+	jmp SkipEXE4
+WriteEXE4:
+	WriteString 42, HeaderMessage3
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE4:
 	mov ah, 09h
-	lea dx, Km4
+	lea dx, HeaderMessage4
 	int 21h
-	PobD 8
+	ReadAndPrintData 8
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE5
-	jmp OminEXE5
-ZapisEXE5:
-	Zapisuj 32, Km4
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE5:
+	cmp LoggingEnabled, 1
+	je WriteEXE5
+	jmp SkipEXE5
+WriteEXE5:
+	WriteString 32, HeaderMessage4
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE5:
 	mov ah, 09h
-	lea dx, Km5
+	lea dx, HeaderMessage5
 	int 21h
-	PobD 10
+	ReadAndPrintData 10
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE6
-	jmp OminEXE6
-ZapisEXE6:
-	Zapisuj 58, Km5
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE6:
+	cmp LoggingEnabled, 1
+	je WriteEXE6
+	jmp SkipEXE6
+WriteEXE6:
+	WriteString 58, HeaderMessage5
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE6:
 	mov ah, 09h
-	lea dx, Km6
+	lea dx, HeaderMessage6
 	int 21h
-	PobD 12
+	ReadAndPrintData 12
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE7
-	jmp OminEXE7
-ZapisEXE7:
-	Zapisuj 59, Km6
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE7:
+	cmp LoggingEnabled, 1
+	je WriteEXE7
+	jmp SkipEXE7
+WriteEXE7:
+	WriteString 59, HeaderMessage6
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE7:
 	mov ah, 09h
-	lea dx, Km7
+	lea dx, HeaderMessage7
 	int 21h
-	PobD 14
+	ReadAndPrintData 14
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE8
-	jmp OminEXE8
-ZapisEXE8:
-	Zapisuj 26, Km7
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE8:
+	cmp LoggingEnabled, 1
+	je WriteEXE8
+	jmp SkipEXE8
+WriteEXE8:
+	WriteString 26, HeaderMessage7
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE8:
 	mov ah, 09h
-	lea dx, Km8
+	lea dx, HeaderMessage8
 	int 21h
-	PobD 16
+	ReadAndPrintData 16
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXE9
-	jmp OminEXE9
-ZapisEXE9:
-	Zapisuj 41, Km8
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXE9:
+	cmp LoggingEnabled, 1
+	je WriteEXE9
+	jmp SkipEXE9
+WriteEXE9:
+	WriteString 41, HeaderMessage8
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXE9:
 	mov ah, 09h
-	lea dx, Km9
+	lea dx, HeaderMessage9
 	int 21h
-	PobD 18
+	ReadAndPrintData 18
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXEA
-	jmp OminEXEA
-ZapisEXEA:
-	Zapisuj 22, Km9
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXEA:
+	cmp LoggingEnabled, 1
+	je WriteEXEA
+	jmp SkipEXEA
+WriteEXEA:
+	WriteString 22, HeaderMessage9
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXEA:
 	mov ah, 09h
-	lea dx, KmA
+	lea dx, HeaderMessageA
 	int 21h
-	PobD 20
+	ReadAndPrintData 20
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXEB
-	jmp OminEXEB
-ZapisEXEB:
-	Zapisuj 41, KmA
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXEB:
+	cmp LoggingEnabled, 1
+	je WriteEXEB
+	jmp SkipEXEB
+WriteEXEB:
+	WriteString 41, HeaderMessageA
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXEB:
 	mov ah, 09h
-	lea dx, KmB
+	lea dx, HeaderMessageB
 	int 21h
-	PobD 22
+	ReadAndPrintData 22
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXEC
-	jmp OminEXEC
-ZapisEXEC:
-	Zapisuj 26, KmB
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXEC:
+	cmp LoggingEnabled, 1
+	je WriteEXEC
+	jmp SkipEXEC
+WriteEXEC:
+	WriteString 26, HeaderMessageB
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXEC:
 	mov ah, 09h
-	lea dx, KmC
+	lea dx, HeaderMessageC
 	int 21h
-	PobD 24
+	ReadAndPrintData 24
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXED
-	jmp OminEXED
-ZapisEXED:
-	Zapisuj 32, KmC
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXED:
+	cmp LoggingEnabled, 1
+	je WriteEXED
+	jmp SkipEXED
+WriteEXED:
+	WriteString 32, HeaderMessageC
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXED:
 	mov ah, 09h
-	lea dx, KmD
+	lea dx, HeaderMessageD
 	int 21h
-	PobD 26
+	ReadAndPrintData 26
 	H2D
-	cmp ZapisT, 1
-	je ZapisEXEE
-	jmp OminEXEE
-ZapisEXEE:
-	Zapisuj 16, KmD
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OminEXEE:
-	cmp WinT, 1
-	je SprWin
-	jmp NieSprW
-SprWin:
-	cmp Bufor[3ch], 0
-	je NieMaWin
+	cmp LoggingEnabled, 1
+	je WriteEXEE
+	jmp SkipEXEE
+WriteEXEE:
+	WriteString 16, HeaderMessageD
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipEXEE:
+	cmp WindowsCheckEnabled, 1
+	je CheckWindows
+	jmp EndWindowsCheck
+CheckWindows:
+	cmp Buffer[3ch], 0
+	je NoWindows
 	xor ax, ax
-	mov al, Bufor[3ch]	;pobierz przesuniecie naglowka programu Windows
+	mov al, Buffer[3ch]	;get the Windows program header offset
 	mov si, ax
-	cmp Bufor[si], 'P'
+	cmp Buffer[si], 'P'
 	jne NoPE
-	cmp Bufor[si+1], 'E'
+	cmp Buffer[si+1], 'E'
 	jne NoPE
-	jmp JestWin
+	jmp WindowsFound
 NoPE:
-	cmp Bufor[si], 'N'
-	jne NieMaWin
-	cmp Bufor[si+1], 'E'
-	jne NieMaWin
+	cmp Buffer[si], 'N'
+	jne NoWindows
+	cmp Buffer[si+1], 'E'
+	jne NoWindows
 	mov ah, 09h
-	lea dx, KmE
+	lea dx, HeaderMessageE
 	int 21h
-	lea dx, KmJ
+	lea dx, HeaderMessageJ
 	int 21h
 	mov si, 3ch
-	call PobierzDane
+	call ReadData
 	call Hex2Dec
 	mov ah, 09h
-	lea dx, DaneD1
+	lea dx, HexText
 	int 21h
-	lea dx, DaneD2
+	lea dx, DecimalText
 	int 21h
-	cmp ZapisT, 1
-	je Om2
-	jmp NieSprW
-Om2:
-	Zapisuj 41, KmE
-	Zapisuj 34, KmJ
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-	jmp NieSprW
-JestWin:
-	lea dx, KmE
+	cmp LoggingEnabled, 1
+	je WriteNEInfo
+	jmp EndWindowsCheck
+WriteNEInfo:
+	WriteString 41, HeaderMessageE
+	WriteString 34, HeaderMessageJ
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+	jmp EndWindowsCheck
+WindowsFound:
+	lea dx, HeaderMessageE
 	mov ah, 09h
 	int 21h
-	lea dx, KmJ
+	lea dx, HeaderMessageJ
 	int 21h
 	mov si, 3ch
-	call PobierzDane
-	mov DlNazwyPl, bx	;zapisz adres naglowka
+	call ReadData
+	mov FileNameLength, bx	;save the header address
 	call Hex2Dec
 	mov si, bx
 	mov ah, 09h
-	lea dx, DaneD1
+	lea dx, HexText
 	int 21h
-	lea dx, DaneD2
+	lea dx, DecimalText
 	int 21h
-	cmp ZapisT, 0
-	je OmZ
-	Zapisuj 41, KmE
-	Zapisuj 34, KmJ
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-OmZ:
-	mov si, DlNazwyPl
+	cmp LoggingEnabled, 0
+	je SkipWindowsLog
+	WriteString 41, HeaderMessageE
+	WriteString 34, HeaderMessageJ
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+SkipWindowsLog:
+	mov si, FileNameLength
 	add si, 4
-	mov DlNazwyPl, si	;zapisz wartosc SI
-	call PobierzDane
+	mov FileNameLength, si	;save the value of SI
+	call ReadData
 	mov ah, 09h
 	cmp bx, 0h
 	je PUnknown
@@ -578,365 +580,365 @@ OmZ:
 	je PMark2
 	cmp bx, 166h
 	je PMark3
-	jmp POmin
+	jmp SkipProcessorInfo
 PUnknown:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH1
+	lea dx, HeaderMessageH1
 	int 21h
-	cmp ZapisT, 1
-	je PUnknownZ
-	jmp POmin
-PUnknownZ:
-	Zapisuj 49, KmG
-	Zapisuj 11, KmH1
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je PUnknownWrite
+	jmp SkipProcessorInfo
+PUnknownWrite:
+	WriteString 49, HeaderMessageG
+	WriteString 11, HeaderMessageH1
+	jmp SkipProcessorInfo
 CPU386:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH2
+	lea dx, HeaderMessageH2
 	int 21h
-	cmp ZapisT, 1
-	je CPU386Z
-	jmp POmin
-CPU386Z:
-	Zapisuj 49, KmG
-	Zapisuj 8, KmH2
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je CPU386Write
+	jmp SkipProcessorInfo
+CPU386Write:
+	WriteString 49, HeaderMessageG
+	WriteString 8, HeaderMessageH2
+	jmp SkipProcessorInfo
 CPU486:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH3
+	lea dx, HeaderMessageH3
 	int 21h
-	cmp ZapisT, 1
-	je CPU486Z
-	jmp POmin
-CPU486Z:
-	Zapisuj 49, KmG
-	Zapisuj 8, KmH3
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je CPU486Write
+	jmp SkipProcessorInfo
+CPU486Write:
+	WriteString 49, HeaderMessageG
+	WriteString 8, HeaderMessageH3
+	jmp SkipProcessorInfo
 CPU586:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH4
+	lea dx, HeaderMessageH4
 	int 21h
-	cmp ZapisT, 1
-	je CPU586Z
-	jmp POmin
-CPU586Z:
-	Zapisuj 49, KmG
-	Zapisuj 8, KmH4
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je CPU586Write
+	jmp SkipProcessorInfo
+CPU586Write:
+	WriteString 49, HeaderMessageG
+	WriteString 8, HeaderMessageH4
+	jmp SkipProcessorInfo
 PMark1:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH5
+	lea dx, HeaderMessageH5
 	int 21h
-	cmp ZapisT, 1
-	je PMark1Z
-	jmp POmin
-PMark1Z:
-	Zapisuj 49, KmG
-	Zapisuj 29, KmH5
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je PMark1Write
+	jmp SkipProcessorInfo
+PMark1Write:
+	WriteString 49, HeaderMessageG
+	WriteString 29, HeaderMessageH5
+	jmp SkipProcessorInfo
 PMark2:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH6
+	lea dx, HeaderMessageH6
 	int 21h
-	cmp ZapisT, 1
-	je PMark2Z
-	jmp POmin
-PMark2Z:
-	Zapisuj 49, KmG
-	Zapisuj 23, KmH6
-	jmp POmin
+	cmp LoggingEnabled, 1
+	je PMark2Write
+	jmp SkipProcessorInfo
+PMark2Write:
+	WriteString 49, HeaderMessageG
+	WriteString 23, HeaderMessageH6
+	jmp SkipProcessorInfo
 PMark3:
-	lea dx, KmG
+	lea dx, HeaderMessageG
 	int 21h
-	lea dx, KmH7
+	lea dx, HeaderMessageH7
 	int 21h
-	cmp ZapisT, 1
-	je PMark3Z
-	jmp POmin
-PMark3Z:
-	Zapisuj 49, KmG
-	Zapisuj 24, KmH7
-	jmp POmin
-POmin:
-	mov si, DlNazwyPl	;przywroc wartosc SI
+	cmp LoggingEnabled, 1
+	je PMark3Write
+	jmp SkipProcessorInfo
+PMark3Write:
+	WriteString 49, HeaderMessageG
+	WriteString 24, HeaderMessageH7
+	jmp SkipProcessorInfo
+SkipProcessorInfo:
+	mov si, FileNameLength	;restore the value of SI
 	inc si
 	inc si
-	call PobierzDane
+	call ReadData
 	call Hex2Dec
 	mov ah, 09h
-	lea dx, KmI
+	lea dx, HeaderMessageI
 	int 21h
-	lea dx, DaneD1
+	lea dx, HexText
 	int 21h
-	lea dx, DaneD2
+	lea dx, DecimalText
 	int 21h
-	cmp ZapisT, 1
-	je POminZ
-	jmp Om1
-POminZ:
-	Zapisuj 34, KmI
-	Zapisuj DlDanych1, DaneD1
-	Zapisuj DlDanych2, DaneD2
-Om1:
-	jmp NieSprW
-NieMaWin:
-	lea dx, KmF
+	cmp LoggingEnabled, 1
+	je WriteObjectCount
+	jmp EndObjectCount
+WriteObjectCount:
+	WriteString 34, HeaderMessageI
+	WriteString HexTextLength, HexText
+	WriteString DecimalTextLength, DecimalText
+EndObjectCount:
+	jmp EndWindowsCheck
+NoWindows:
+	lea dx, HeaderMessageF
 	mov ah, 09h
 	int 21h
-	cmp ZapisT, 0
-	je NieSprW
-	Zapisuj 46, KmF
-NieSprW:
+	cmp LoggingEnabled, 0
+	je EndWindowsCheck
+	WriteString 46, HeaderMessageF
+EndWindowsCheck:
 	ret
-Nieznany:
+UnknownFormat:
 	mov ah, 09h
-	lea dx, Kom9
+	lea dx, Message9
 	int 21h
-	lea dx, Plik
+	lea dx, InputFileName
 	int 21h
-	lea dx, KomA
+	lea dx, MessageA
 	int 21h
-	lea dx, Kom6
+	lea dx, Message6
 	int 21h
-	cmp ZapisT, 1
-	je ZapisNZ1
-	jmp OminNZ1
-ZapisNZ1:
-	mov bx, UchwytZ
-	Zapisuj 13, Kom9
-	Zapisuj DlNazwyPl, Plik
-	Zapisuj 8, KomA
-	Zapisuj 31, Kom6
-OminNZ1:
-	jmp Koniec
-PlikCOM:
+	cmp LoggingEnabled, 1
+	je WriteUnknown1
+	jmp SkipUnknown1
+WriteUnknown1:
+	mov bx, OutputFileHandle
+	WriteString 13, Message9
+	WriteString FileNameLength, InputFileName
+	WriteString 8, MessageA
+	WriteString 31, Message6
+SkipUnknown1:
+	jmp ExitProgram
+COMFile:
 	mov ah, 09h
-	lea dx, Kom9
+	lea dx, Message9
 	int 21h	
-	lea dx, Plik
+	lea dx, InputFileName
 	int 21h
-	lea dx, KomA
+	lea dx, MessageA
 	int 21h
-	lea dx, Kom8
+	lea dx, Message8
 	int 21h
-	cmp ZapisT, 1
-	je ZapisCOM1
-	jmp OminCOM1
-ZapisCOM1:
-	mov bx, UchwytZ
-	Zapisuj 13, Kom9
-	Zapisuj DlNazwyPl, Plik
-	Zapisuj 8, KomA
-	Zapisuj 21, Kom8
-OminCOM1:
-	jmp Koniec
-BladPrzyZ:
-	lea dx, BladZ
+	cmp LoggingEnabled, 1
+	je WriteCOM1
+	jmp SkipCOM1
+WriteCOM1:
+	mov bx, OutputFileHandle
+	WriteString 13, Message9
+	WriteString FileNameLength, InputFileName
+	WriteString 8, MessageA
+	WriteString 21, Message8
+SkipCOM1:
+	jmp ExitProgram
+WriteError:
+	lea dx, ErrorWrite
 	mov ah, 09h
 	int 21h
-	jmp Koniec
+	jmp ExitProgram
 ENDP
 
-PobierzDane PROC
+ReadData PROC
 	xor cx, cx
 	xor di, di
-	mov bh, Bufor[si+1]
-	mov bl, Bufor[si]
+	mov bh, Buffer[si+1]
+	mov bl, Buffer[si]
 	xor ax, ax
 	push bx
 	mov dh, bh
 	shr bh, 4
 	cmp bh, 0
-	je Dalej1
+	je NextHexDigit1
 	mov al, bh
 	mov si, ax
-	mov bh, Tablica[si]
-	mov DaneD1[di], bh
+	mov bh, HexDigits[si]
+	mov HexText[di], bh
 	inc cx
 	inc di
-	mov Flaga, 1
-Dalej1:
+	mov DigitFlag, 1
+NextHexDigit1:
 	mov bh, dh
 	and bh, 0fh
 	cmp bh, 0
-	je Dal2
-	jmp ODal2
-Dal2:
-	cmp Flaga, 1
-	je ODal2
-	jmp Dalej2
-ODal2:
+	je CheckHexDigit2
+	jmp OutputHexDigit2
+CheckHexDigit2:
+	cmp DigitFlag, 1
+	je OutputHexDigit2
+	jmp NextHexDigit2
+OutputHexDigit2:
 	mov al, bh
 	mov si, ax
-	mov bh, Tablica[si]
-	mov DaneD1[di], bh
+	mov bh, HexDigits[si]
+	mov HexText[di], bh
 	inc cx
 	inc di
-Dalej2:
+NextHexDigit2:
 	mov dh, bl
 	shr bl, 4
 	cmp bl, 0
-	je Dal3
-	jmp ODal3
-Dal3:
-	cmp Flaga, 1
-	je ODal3
-	jmp Dalej3
-ODal3:
+	je CheckHexDigit3
+	jmp OutputHexDigit3
+CheckHexDigit3:
+	cmp DigitFlag, 1
+	je OutputHexDigit3
+	jmp NextHexDigit3
+OutputHexDigit3:
 	mov al, bl
 	mov si, ax
-	mov bl, Tablica[si]
-	mov DaneD1[di], bl
+	mov bl, HexDigits[si]
+	mov HexText[di], bl
 	inc cx
 	inc di
-Dalej3:
+NextHexDigit3:
 	mov bl, dh
 	and bl, 0fh
 	mov al, bl
 	mov si, ax
-	mov bl, Tablica[si]
-	mov DaneD1[di], bl
+	mov bl, HexDigits[si]
+	mov HexText[di], bl
 	inc cx
 	inc di
 	pop bx
-	mov DaneD1[di], 'h'
+	mov HexText[di], 'h'
 	inc di
 	inc cx
-	mov DaneD1[di], ' '
+	mov HexText[di], ' '
 	inc di
 	inc cx
-	mov DaneD1[di], '$'
+	mov HexText[di], '$'
 	xor si, si
 	xor di, di
-	mov DlDanych1, cx
+	mov HexTextLength, cx
 	xor cx, cx
-	mov Flaga, 0
+	mov DigitFlag, 0
 	ret
 ENDP
 
 Hex2Dec PROC
-	lea bp, DaneD2
+	lea bp, DecimalText
 	mov ax, bx
 	cmp ax, 0
-	jne DalejH2D
+	jne ContinueDecimalConversion
 	mov byte ptr ds:[bp], 13
 	mov byte ptr ds:[bp+1], 10
 	mov byte ptr ds:[bp+2], '$'
-	mov Dzielnik, 0
-	jmp KoniecH2D
-DalejH2D:
-	mov Dzielnik, 10000
+	mov Divisor, 0
+	jmp EndDecimalConversion
+ContinueDecimalConversion:
+	mov Divisor, 10000
 	xor dx, dx
 H2D2:
-	div Dzielnik
+	div Divisor
 	push ax
-	or al, Flaga
+	or al, DigitFlag
 	pop ax
-	jz ZapisH2D
-	mov Flaga, 1
+	jz NextDecimalDigit
+	mov DigitFlag, 1
 	add al, 30h
 	mov ds:[bp], al
 	inc bp
-ZapisH2D:
+NextDecimalDigit:
 	push dx
 	xor dx, dx
-	mov ax, Dzielnik
+	mov ax, Divisor
 	mov bx, 10
 	div bx
-	mov Dzielnik, ax
+	mov Divisor, ax
 	pop ax
-KoniecH2D:
-	cmp Dzielnik, 0
+EndDecimalConversion:
+	cmp Divisor, 0
 	jne H2D2
 	mov byte ptr ds:[bp], 13
 	mov byte ptr ds:[bp+1], 10
 	mov byte ptr ds:[bp+2], '$'
 	inc bp
-	lea dx, DlDanych2
+	lea dx, DecimalTextLength
 	sub bp, dx
 	sub bp, 7
-	mov DlDanych2, bp	;zapisz dlugosc ciagu znakow
+	mov DecimalTextLength, bp	;save the string length
 	xor bp, bp
 	xor dx, dx
-	mov Flaga, 0
+	mov DigitFlag, 0
 	ret
 ENDP
 
-ZamknijPliki PROC
+CloseFiles PROC
 	mov ah, 3eh
-	mov bx, Uchwyt
+	mov bx, FileHandle
 	int 21h
 	mov ah, 3eh
-	mov bx, UchwytZ
+	mov bx, OutputFileHandle
 	int 21h
 	ret
 ENDP
 
 .data
-	Kom0 db 'ExeInfo',13,10,'Copyright (C) 2001 Jakub Halun',13,10,'Program rozpoznaje typ pliku programu (COM/EXE)',13,10,'$'
-	Kom1 db 'i jezeli jest to program EXE, podaje informacje na jego temat.',13,10,'$'
-	Kom2 db 13,10,'EXEINFO [Dysk:][Sciezka]Nazwa_Pliku [/L:nazwa_pliku] [/W]',13,10,13,10,'$'
-	Kom3 db '/L:nazwa_pliku - zapisuje wygenerowane przez program komunikaty do nazwa_pliku',13,10,'$'
-	Kom5 db '/W - sprawdza, czy plik nie zawiera programu MS Windows',13,10,'$'
-	Kom6 db 'Nierozpoznany format pliku.',13,10,13,10,'$'
-	Kom7 db 'Program typu EXE.',13,10,13,10,'$'
-	Kom8 db 'Program typu COM.',13,10,13,10,'$'
-	Kom9 db 'NAZWA PLIKU: $'
-	KomA db 'FORMAT: $'
-	Km1 db 'Dlugosc ostatniej strony: $'
-	Km2 db 'Dlugosc programu razem z naglowkiem w stronach (512 B): $'
-	Km3 db 'Liczba elementow w tablicy przemieszczen: $'
-	Km4 db 'Rozmiar naglowka w paragrafach: $'
-	Km5 db 'Minimalna pamiec potrzebna ponad program (w paragrafach): $'
-	Km6 db 'Maksymalna pamiec potrzebna ponad program (w paragrafach): $'
-	Km7 db 'Przesuniecie segmentu SS: $'
-	Km8 db 'Wartosc rejestru SP na poczatku procesu: $'
-	Km9 db 'Suma kontrolna pliku: $'
-	KmA db 'Wartosc rejestru IP na poczatku procesu: $'
-	KmB db 'Przesuniecie segmentu CS: $'
-	KmC db 'Poczatek tablicy przemieszczen: $'
-	KmD db 'Numer nakladki: $'
-	KmE db 13,10,'Plik zawiera program typu MS Windows.',13,10,'$'
-	KmF db 13,10,'Plik nie zawiera programu typu MS Windows.',13,10,'$'
-	KmG db 'Typ procesora wymagany przez program MS Windows: $'
-	KmH1 db 'nieznany.',13,10,'$'
-	KmH2 db '80386.',13,10,'$'
-	KmH3 db '80486.',13,10,'$'
-	KmH4 db '80586.',13,10,'$'
-	KmH5 db 'MIPS Mark I (R2000, R3000).',13,10,'$'
-	KmH6 db 'MIPS Mark II (R6000).',13,10,'$'
-	KmH7 db 'MIPS Mark III (R4000).',13,10,'$'
-	KmI db 'Liczba wpisow w tablicy obiektow: $'
-	KmJ db 'Offset naglowka programu Windows: $'
-	Tablica db '0123456789ABCDEF'
-	Bufor db 256 dup(?)
-	RozneOdZ  db 0
-	DlNazwyPl dw 0
-	DlDanych1 dw 0
-	DlDanych2 dw 0
-	DaneD1 db 6 dup(0)
-	DaneD2 db 12 dup(0)
-	PlikDoZ db 128 dup(0)
-	Plik db 128 dup(0)
-	Dzielnik dw ?
-	Flaga db 0
-	Uchwyt dw ?
-	UchwytZ dw ?
-	Blad0 db 'Blad. $'
-	Blad00 db 'Blad pliku do zapisu (LOG). $'
-	Blad80 db 'Plik do zapisu juz istnieje. Nadpisac istniejacy plik T/N',13,10,'$'
-	Kom80 db 'Podaj nowa nazwe dla tworzonego pliku: $'
-	Blad2 db 'Brak pliku o podanej nazwie.',13,10,'$'
-	Blad3 db 'Nie znaleziono sciezki dostepu.',13,10,'$'
-	Blad4 db 'Za duzo plikow otwartych rownoczesnie.',13,10,'$'
-	Blad5 db 'Brak uprawnien dostepu do pliku.',13,10,'$'
-	BladZ db 'Blad przy zapisie do pliku.',13,10,'$'
-	WinT db ?
-	ZapisT db 0
+	Message0 db 'ExeInfo',13,10,'Copyright (C) 2001 Jakub Halun',13,10,'Program rozpoznaje typ pliku programu (COM/EXE)',13,10,'$'
+	Message1 db 'i jezeli jest to program EXE, podaje informacje na jego temat.',13,10,'$'
+	Message2 db 13,10,'EXEINFO [Dysk:][Sciezka]Nazwa_Pliku [/L:nazwa_pliku] [/W]',13,10,13,10,'$'
+	Message3 db '/L:nazwa_pliku - zapisuje wygenerowane przez program komunikaty do nazwa_pliku',13,10,'$'
+	Message5 db '/W - sprawdza, czy plik nie zawiera programu MS Windows',13,10,'$'
+	Message6 db 'Nierozpoznany format pliku.',13,10,13,10,'$'
+	Message7 db 'Program typu EXE.',13,10,13,10,'$'
+	Message8 db 'Program typu COM.',13,10,13,10,'$'
+	Message9 db 'NAZWA PLIKU: $'
+	MessageA db 'FORMAT: $'
+	HeaderMessage1 db 'Dlugosc ostatniej strony: $'
+	HeaderMessage2 db 'Dlugosc programu razem z naglowkiem w stronach (512 B): $'
+	HeaderMessage3 db 'Liczba elementow w tablicy przemieszczen: $'
+	HeaderMessage4 db 'Rozmiar naglowka w paragrafach: $'
+	HeaderMessage5 db 'Minimalna pamiec potrzebna ponad program (w paragrafach): $'
+	HeaderMessage6 db 'Maksymalna pamiec potrzebna ponad program (w paragrafach): $'
+	HeaderMessage7 db 'Przesuniecie segmentu SS: $'
+	HeaderMessage8 db 'Wartosc rejestru SP na poczatku procesu: $'
+	HeaderMessage9 db 'Suma kontrolna pliku: $'
+	HeaderMessageA db 'Wartosc rejestru IP na poczatku procesu: $'
+	HeaderMessageB db 'Przesuniecie segmentu CS: $'
+	HeaderMessageC db 'Poczatek tablicy przemieszczen: $'
+	HeaderMessageD db 'Numer nakladki: $'
+	HeaderMessageE db 13,10,'Plik zawiera program typu MS Windows.',13,10,'$'
+	HeaderMessageF db 13,10,'Plik nie zawiera programu typu MS Windows.',13,10,'$'
+	HeaderMessageG db 'Typ procesora wymagany przez program MS Windows: $'
+	HeaderMessageH1 db 'nieznany.',13,10,'$'
+	HeaderMessageH2 db '80386.',13,10,'$'
+	HeaderMessageH3 db '80486.',13,10,'$'
+	HeaderMessageH4 db '80586.',13,10,'$'
+	HeaderMessageH5 db 'MIPS Mark I (R2000, R3000).',13,10,'$'
+	HeaderMessageH6 db 'MIPS Mark II (R6000).',13,10,'$'
+	HeaderMessageH7 db 'MIPS Mark III (R4000).',13,10,'$'
+	HeaderMessageI db 'Liczba wpisow w tablicy obiektow: $'
+	HeaderMessageJ db 'Offset naglowka programu Windows: $'
+	HexDigits db '0123456789ABCDEF'
+	Buffer db 256 dup(?)
+	Nonzero  db 0
+	FileNameLength dw 0
+	HexTextLength dw 0
+	DecimalTextLength dw 0
+	HexText db 6 dup(0)
+	DecimalText db 12 dup(0)
+	OutputFileName db 128 dup(0)
+	InputFileName db 128 dup(0)
+	Divisor dw ?
+	DigitFlag db 0
+	FileHandle dw ?
+	OutputFileHandle dw ?
+	Error0 db 'Blad. $'
+	Error00 db 'Blad pliku do zapisu (LOG). $'
+	Error80 db 'Plik do zapisu juz istnieje. Nadpisac istniejacy plik T/N',13,10,'$'
+	Message80 db 'Podaj nowa nazwe dla tworzonego pliku: $'
+	Error2 db 'Brak pliku o podanej nazwie.',13,10,'$'
+	Error3 db 'Nie znaleziono sciezki dostepu.',13,10,'$'
+	Error4 db 'Za duzo plikow otwartych rownoczesnie.',13,10,'$'
+	Error5 db 'Brak uprawnien dostepu do pliku.',13,10,'$'
+	ErrorWrite db 'Blad przy zapisie do pliku.',13,10,'$'
+	WindowsCheckEnabled db ?
+	LoggingEnabled db 0
 End Start

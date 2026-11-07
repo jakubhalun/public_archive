@@ -1,25 +1,26 @@
+; Displays the first 256 bytes of the program environment using MS-DOS services.
 ;***http://halun.pl/***
 
 .model tiny
 .code
 	org 100h
 Start:
-	mov ah, 62h		;funkcja 62h...
-	int 21h			;...przerwania 21h - pobranie adresu PSP	
-	mov es, bx		;zaladuj adres PSP do rejestru ES
+	mov ah, 62h		;function 62h...
+	int 21h			;...of interrupt 21h: get the PSP address
+	mov es, bx		;load the PSP address into ES
 
-	mov bx, es:[2Ch]	;zaladuj zawartosc pola 2Ch w PSP (adres otoczenia) do rejestru BX
-	mov es, bx		;zaladuj adres otoczenia do rejestru ES
+	mov bx, es:[2Ch]	;load PSP field 2Ch (the environment address) into BX
+	mov es, bx		;load the environment address into ES
 
 	mov cx, 256
 	xor si, si
 	mov ah, 02h
-WyswietlBajty:
-	mov dl, es:[si]		;wyswietlaj zawartosc otoczenia znak po znaku
+DisplayBytes:
+	mov dl, es:[si]		;display the environment contents character by character
 	int 21h
 	inc si
-	loop WyswietlBajty 
+	loop DisplayBytes 
 
-	mov ax, 4c00h		;zamknij program
+	mov ax, 4c00h		;exit the program
 	int 21h
 End Start
