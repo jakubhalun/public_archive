@@ -1,9 +1,9 @@
 ; Searches directories for matching files using MS-DOS services, with optional logging.
-;********************************************************************
-;*     FF.ASM - FILE FIND - searches for files on a disk               *
-;*     Copyright (C) 2000 Jakub Halun				    *
-;*     www.yaqb.prv.pl						    *
-;********************************************************************
+
+;* FF.ASM - FILE FIND - searches for files on a disk
+;* 2000 by Jakub Halun
+;* halun.pl
+
 .model small
 .stack 512
 .data

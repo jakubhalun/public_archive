@@ -1,10 +1,10 @@
 ; Identifies COM/EXE files and displays EXE header information using MS-DOS services.
 ; Includes optional Windows header checks and logging to a file.
-;********************************************************************
-;*     ExeInfo                                                      *
-;*     Copyright (C) 2001 Jakub Halun				    *
-;*     http://jhal.republika.pl					    *
-;********************************************************************
+
+;* ExeInfo
+;* 2001 by Jakub Halun
+;* https://halun.pl
+
 .model small
 jumps
 .stack 64
